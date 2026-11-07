@@ -1,0 +1,27 @@
+node_modules
+.next
+.env
+storage
+*.log
+release
+.test-storage
+
+.e2e-storage
+e2e/.state
+e2e/report
+test-results
+playwright-report
+tsconfig.tsbuildinfo
+
+.update-rollback
+.update-staging
+tmp
+
+# آزمون‌های کیفیت (QA)
+.qa-storage
+qa/.state
+qa/report
+.axe-detail.mjs
+
+# کلیدهای خصوصی امضای انتشار (CR-05): هرگز commit نشود؛ آفلاین نگه دارید
+release-keys/

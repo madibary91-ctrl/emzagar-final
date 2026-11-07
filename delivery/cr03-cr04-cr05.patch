@@ -1,0 +1,3194 @@
+diff --git a/.dockerignore b/.dockerignore
+index d966a18..46a8ea2 100644
+--- a/.dockerignore
++++ b/.dockerignore
+@@ -9,3 +9,5 @@ release
+ storage
+ .test-storage
+ tests
++
++release-keys
+diff --git a/.env.example b/.env.example
+index 736b664..974d3f3 100644
+--- a/.env.example
++++ b/.env.example
+@@ -1,7 +1,8 @@
+ # ═════════ نکته: با نصب‌کننده‌ی وب (/install) هیچ‌کدام از این‌ها دستی لازم نیست ═════════
+ # خریدار مبتدی فقط سایت را باز می‌کند و فرم نصب را پر می‌کند؛ آدرس دیتابیس و کلید امنیتی خودکار در storage/config.json ذخیره می‌شود.
+ # متغیرهای زیر فقط برای Docker و مدیران سرور هستند (اولویت با متغیر محیطی است):
+-# INSTALL_KEY=یک-رمز-دلخواه   ← اختیاری: صفحه‌ی نصب فقط با این کلید قابل استفاده می‌شود (امن‌تر برای سرورهای عمومی)
++# INSTALL_KEY=یک-رمز-دلخواه   ← (CR-03) نصب‌کننده «همیشه» کلید می‌خواهد. اگر این را نگذارید، کلید تصادفی در storage/install-key.txt و لاگ سرور ساخته می‌شود و پس از نصب حذف می‌شود.
++# INSTALL_OPEN=1              ← فقط CI/آزمون محلی: انصراف صریح از کلید نصب (روی سرور عمومی هرگز)
+ # DATABASE_URL=postgresql://user:password@127.0.0.1:5432/dbname
+ # کلید امضای نشست، کدهای OTP و رمزنگاری کلیدهای ذخیره‌شده (کلید AI، رمز SMTP …)
+ # در production اجباری است (حداقل ۱۶ نویسه‌ی تصادفی). با تغییر آن، کلیدهای رمزنگاری‌شده باید دوباره وارد شوند.
+@@ -107,3 +108,12 @@ BACKUP_KEEP=14
+ # ZARINPAL_MERCHANT_ID=   ZIBAL_MERCHANT=   IDPAY_API_KEY=   PAYIR_API_KEY=
+ # IDPAY_SANDBOX=1        ← حالت آزمایشی آیدی‌پی
+ # KYC_THRESHOLD_TOMAN=100000000   ← آستانه‌ی الزام احراز هویت (۰ = غیرفعال)
++
++# ── بک‌آپ کامل (CR-04) ──
++# مسیر نسخه‌ها؛ باید «بیرون» از پوشه‌ی storage و ترجیحاً روی دیسک/volume دیگر باشد (Docker: volume جدای backups).
++# BACKUP_DIR=/var/backups/emzagar
++# مقصدهای آینه (چند مسیر با ویرگول): دیسک/NFS/mount دیگر یا سرور دیگر. هر نسخه همان لحظه کپی و در مقصد راستی‌آزمایی می‌شود.
++# BACKUP_MIRROR_DIRS=/mnt/offsite-a,/mnt/offsite-b
++# کلید عمومی بازیابی: از «/platform ← ساخت کلید بازیابی» یا `npm run backup -- keygen` ساخته می‌شود (فایل storage/backup-recovery.pub).
++# با آن، SESSION_SECRET (کلید رمزگشایی KYC) «مهر‌شده» داخل هر بک‌آپ می‌رود؛ کلید خصوصی فقط نزد شماست.
++# BACKUP_RECOVERY_PUBLIC_KEY=
+diff --git a/.env.production.example b/.env.production.example
+index 3852522..42856ce 100644
+--- a/.env.production.example
++++ b/.env.production.example
+@@ -12,7 +12,7 @@ APP_URL=https://sign.example.com
+ DB_PASSWORD=
+ SESSION_SECRET=
+ CRON_SECRET=
+-# اختیاری: صفحه‌ی /install فقط با این کلید باز می‌شود (امن‌تر روی سرور عمومی)
++# کلید نصب: /install فقط با این کلید کار می‌کند (اگر خالی بگذارید، کلید تصادفی در storage/install-key.txt ساخته می‌شود)
+ INSTALL_KEY=
+ 
+ # ── لایسنس و به‌روزرسانی (از فروشنده دریافت می‌کنید) ──
+@@ -27,3 +27,12 @@ SMTP_PORT=587
+ SMTP_USER=
+ SMTP_PASS=
+ SMTP_FROM=
++
++# ── بک‌آپ کامل (CR-04) ──
++# مسیر نسخه‌ها؛ باید «بیرون» از پوشه‌ی storage و ترجیحاً روی دیسک/volume دیگر باشد (Docker: volume جدای backups).
++# BACKUP_DIR=/var/backups/emzagar
++# مقصدهای آینه (چند مسیر با ویرگول): دیسک/NFS/mount دیگر یا سرور دیگر. هر نسخه همان لحظه کپی و در مقصد راستی‌آزمایی می‌شود.
++# BACKUP_MIRROR_DIRS=/mnt/offsite-a,/mnt/offsite-b
++# کلید عمومی بازیابی: از «/platform ← ساخت کلید بازیابی» یا `npm run backup -- keygen` ساخته می‌شود (فایل storage/backup-recovery.pub).
++# با آن، SESSION_SECRET (کلید رمزگشایی KYC) «مهر‌شده» داخل هر بک‌آپ می‌رود؛ کلید خصوصی فقط نزد شماست.
++# BACKUP_RECOVERY_PUBLIC_KEY=
+diff --git a/.gitignore b/.gitignore
+index 0ae740e..c3d1fb4 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -22,3 +22,6 @@ tmp
+ qa/.state
+ qa/report
+ .axe-detail.mjs
++
++# کلیدهای خصوصی امضای انتشار (CR-05): هرگز commit نشود؛ آفلاین نگه دارید
++release-keys/
+diff --git a/Dockerfile b/Dockerfile
+index 8e15102..cce43bc 100644
+--- a/Dockerfile
++++ b/Dockerfile
+@@ -15,14 +15,15 @@ RUN npm run build
+ FROM node:22-alpine AS run
+ WORKDIR /app
+ ENV NODE_ENV=production NEXT_TELEMETRY_DISABLED=1 PORT=3000 HOSTNAME=0.0.0.0
+-RUN addgroup -S app && adduser -S app -G app && mkdir -p /app/storage && chown app:app /app/storage
++RUN addgroup -S app && adduser -S app -G app && mkdir -p /app/storage /app/backups && chown app:app /app/storage /app/backups
+ COPY --from=build --chown=app:app /app/.next/standalone ./
+ COPY --from=build --chown=app:app /app/.next/static ./.next/static
+ COPY --from=build --chown=app:app /app/public ./public
+ COPY --from=build --chown=app:app /app/assets ./assets
+ COPY --from=build --chown=app:app /app/wordpress-plugin ./wordpress-plugin
+ USER app
+-VOLUME ["/app/storage"]
++# CR-04: بک‌آپ‌ها روی volume «جدا» از داده‌ی اصلی‌اند (حذف/خرابی storage بک‌آپ‌ها را نمی‌برد)
++VOLUME ["/app/storage", "/app/backups"]
+ EXPOSE 3000
+ HEALTHCHECK --interval=30s --timeout=5s --start-period=20s CMD wget -qO- http://127.0.0.1:3000/api/health || exit 1
+ CMD ["node", "server.js"]
+diff --git a/README.md b/README.md
+index 7e5b4e8..baba128 100644
+--- a/README.md
++++ b/README.md
+@@ -95,3 +95,25 @@ Next.js 16 (App Router) · PostgreSQL · Drizzle ORM · Tailwind 4
+ 
+ ## قابلیت‌های تجاری
+ دعوت دوستان، پرداخت چنددرگاهی با Failover، کیف پول و احراز هویت (KYC): `docs/COMMERCE-FA.md`
++
++## امنیت و پایداری — سه اصلاح بحرانی (CR-03 · CR-04 · CR-05)
++
++### CR-03 — نصب‌کننده‌ی وب (اولین بازدیدکننده دیگر مدیر کل نمی‌شود)
++- نصب‌کننده «همیشه» کلید نصب می‌خواهد: `INSTALL_KEY` (محیط) یا کلید تصادفی ۱۴۴ بیتی در `storage/install-key.txt` (مجوز 0600 + چاپ در لاگ سرور). پس از نصب، فایل کلید حذف می‌شود. تلاش‌های ناموفق سراسری شمرده می‌شود (۲۰ تلاش ← قفل ۱۵ دقیقه‌ای).
++- وضعیت نصب سه‌حالته است: `installed` / `fresh` / `unknown`. اگر دیتابیس پیکربندی شده ولی خوانده نمی‌شود (قطعی، خطای دسترسی) و lock-file هم نیست، حالت «نامعلوم» است و **همه‌ی مراحل بسته می‌مانند**؛ پس آدرس دیتابیس بازنویسی نمی‌شود و مدیر جدید ساخته نمی‌شود.
++- `INSTALL_OPEN=1` فقط انصراف صریح برای CI/آزمون محلی است (اسکریپت‌های e2e/qa آن را می‌گذارند) و در حالت «نامعلوم» هم بسته می‌ماند.
++- آزمون: `tests/integration/install-hardening.test.ts` · `install-fail-closed.test.ts`.
++
++### CR-04 — بک‌آپ کامل و جدا از داده‌ی اصلی
++- بک‌آپ اکنون شامل **مدارک KYC** (همان فایل‌های رمزنگاری‌شده) و **SESSION_SECRET** است. راز هرگز متن ساده نیست: با «sealed box» (X25519 + HKDF-SHA256 + AES-256-GCM) فقط برای **کلید بازیابی** مالک مهر می‌شود (`secrets.sealed.json`). کلید خصوصی (`emz-rk1-…`) روی سرور ذخیره نمی‌شود و فقط یک بار نمایش داده می‌شود.
++- ساخت کلید: `/platform` ← «ساخت کلید بازیابی» یا `npm run backup -- keygen`. تا ساخته نشود، بک‌آپ بدون راز گرفته و هشدار `secret-not-sealed` نشان داده می‌شود.
++- **نسخه‌ها جدا از داده‌ی اصلی:** Docker: volume جدای `backups` (`BACKUP_DIR=/app/backups`)؛ همه‌ی استقرارها: `BACKUP_MIRROR_DIRS=/mnt/a,/mnt/b` برای کپی هم‌زمان (با راستی‌آزمایی در مقصد و سیاست نگهداری جدا). اگر هیچ نسخه‌ای بیرون از volume داده نباشد، هشدار `backups-inside-data-volume` در `/platform` نشان داده می‌شود.
++- تمرین بازیابی: `npm run backup -- verify --key emz-rk1-…` · بازیابی: `npm run restore -- <پوشه> --key emz-rk1-… --yes` (راز در `storage/config.json` نوشته می‌شود؛ کلید غلط/نبود کلید ← پیش از هر تغییر متوقف می‌شود). `scripts/vps-backup.sh` هم اکنون storage را رمزنگاری می‌کند (`BACKUP_PASSPHRASE`) و به `BACKUP_MIRROR` کپی می‌کند.
++- آزمون: `tests/integration/backup-complete.test.ts`.
++
++### CR-05 — امضای دیجیتال به‌روزرسانی افزونه‌ی وردپرس
++- مدل اعتماد: ابر فقط **پخش‌کننده** است. هر انتشار با کلید خصوصی **Ed25519 ناشر** (آفلاین، نه روی ابر) امضا می‌شود: `RELEASE.json` (SHA-256 همه‌ی فایل‌ها + نسخه) و `RELEASE.sig`. کلیدهای عمومی (اصلی + جایگزین اضطراری) در `class-emzagar-release.php` **پین** شده‌اند.
++- افزونه‌ی نصب‌شده، هم zip (پیش از استخراج) و هم پوشه‌ی استخراج‌شده (فیلتر `upgrader_source_selection`، عبور اجباری از هر مسیر دانلود) را می‌سنجد: امضا، فهرست دقیق فایل‌ها، SHA-256 تک‌تک فایل‌ها، لینک نمادین/مسیر مشکوک/حجم غیرعادی، و ضد بازگشت به نسخه‌ی قدیمی‌تر. `emzagar-config.php` فقط با قالب ثابت و آدرس ابر خود افزونه پذیرفته می‌شود؛ هیچ PHP دلخواهی از ابر عبور نمی‌کند.
++- ابر هم فقط بسته‌ی امضاشده‌ی معتبر را عرضه می‌کند (`/api/v1/connect/update-check`).
++- گردش کار ناشر: `npm run plugin:keygen -- <keyId> <فایل>` (یک بار؛ خروجی را در `KEYS` بگذارید) ← پس از هر تغییر در `wordpress-plugin/`: `EMZ_RELEASE_SIGNING_KEY_FILE=… EMZ_RELEASE_KEY_ID=… npm run plugin:sign` ← `npm run plugin:verify` (در `build-release.mjs` خودکار اجرا می‌شود).
++- آزمون: `tests/unit/wp-release.test.ts` (کد واقعی PHP را اجرا می‌کند؛ `PHP_BIN` و در صورت نبود sodium، `SODIUM_COMPAT_DIR`).
+diff --git a/docker-compose.prod.yml b/docker-compose.prod.yml
+index b7630cc..e139dcb 100644
+--- a/docker-compose.prod.yml
++++ b/docker-compose.prod.yml
+@@ -31,8 +31,10 @@ services:
+       DATABASE_URL: postgresql://emzagar:${DB_PASSWORD}@db:5432/emzagar
+       NODE_ENV: production
+       TRUSTED_PROXY_HOPS: "1"   # پشت Caddy
++      BACKUP_DIR: /app/backups
+     volumes:
+       - storage:/app/storage
++      - backups:/app/backups   # CR-04: volume جدا از داده‌ی اصلی
+     expose:
+       - "3000"
+ 
+@@ -55,5 +57,6 @@ services:
+ volumes:
+   dbdata:
+   storage:
++  backups:
+   caddy_data:
+   caddy_config:
+diff --git a/docker-compose.yml b/docker-compose.yml
+index b1d9f5c..e6199b2 100644
+--- a/docker-compose.yml
++++ b/docker-compose.yml
+@@ -29,10 +29,14 @@ services:
+     environment:
+       DATABASE_URL: postgresql://emzagar:${DB_PASSWORD:-emzagar-change-me}@db:5432/emzagar
+       TRUSTED_PROXY_HOPS: "0"
++      BACKUP_DIR: /app/backups
++      # آینه‌ی بیرونی (دیسک/NFS دیگر که روی /mirror mount کرده‌اید): BACKUP_MIRROR_DIRS: /mirror
+       # آدرس عمومی سایت (اختیاری، پس از اتصال دامنه): APP_URL: https://sign.example.com
+     volumes:
+       - storage:/app/storage
++      - backups:/app/backups   # CR-04: volume جدا از داده‌ی اصلی
+ 
+ volumes:
+   dbdata:
+   storage:
++  backups:
+diff --git a/docs/INSTALL-FA.md b/docs/INSTALL-FA.md
+index 99f14b9..9a765a6 100644
+--- a/docs/INSTALL-FA.md
++++ b/docs/INSTALL-FA.md
+@@ -17,7 +17,7 @@
+    - دکمه‌ی **Create** و بعد **Run / Restart**
+ 4. آدرس سایت را در مرورگر باز کنید. صفحه‌ی **نصب** خودکار می‌آید؛ اطلاعات دیتابیس و حساب مدیر را وارد کنید. تمام!
+ 
+-> ⚠️ **همین حالا** نصب را کامل کنید. تا پایان نصب، هر کس صفحه‌ی نصب را ببیند می‌تواند آن را کامل کند (مثل وردپرس). برای امنیت بیشتر می‌توانید متغیر `INSTALL_KEY` را در بخش Environment variables همان Node.js App بگذارید؛ آن‌وقت نصب‌کننده یک «کلید نصب» هم می‌خواهد.
++> 🔐 **کلید نصب (امنیت):** نصب‌کننده «همیشه» اثبات مالکیت سرور می‌خواهد؛ بازدیدکننده‌ی ناشناس نمی‌تواند مدیر شود. کلید را یکی از این سه راه پیدا کنید: ۱) مقدار `INSTALL_KEY` اگر خودتان در Environment variables گذاشته‌اید؛ ۲) فایل `storage/install-key.txt` (در «مدیریت فایل» هاست)؛ ۳) لاگ برنامه (`docker compose logs app`). پس از پایان نصب، فایل کلید خودکار حذف می‌شود. اگر دیتابیس پیکربندی‌شده موقتاً قطع باشد، نصب‌کننده برای امنیت **بسته** می‌ماند (برای شروع از صفر، `storage/config.json` را حذف کنید).
+ 
+ ### اگر مشکل پیش آمد
+ | پیام | راه‌حل |
+diff --git a/next-env.d.ts b/next-env.d.ts
+new file mode 100644
+index 0000000..9edff1c
+--- /dev/null
++++ b/next-env.d.ts
+@@ -0,0 +1,6 @@
++/// <reference types="next" />
++/// <reference types="next/image-types/global" />
++import "./.next/types/routes.d.ts";
++
++// NOTE: This file should not be edited
++// see https://nextjs.org/docs/app/api-reference/config/typescript for more information.
+diff --git a/package.json b/package.json
+index 420cef3..884938d 100644
+--- a/package.json
++++ b/package.json
+@@ -6,7 +6,13 @@
+     "build": "next build",
+     "start": "next start",
+     "lint": "eslint .",
+-    "typecheck": "tsc --noEmit"
++    "typecheck": "tsc --noEmit",
++    "backup": "tsx scripts/backup.ts",
++    "restore": "tsx scripts/restore.ts",
++    "test": "vitest run",
++    "plugin:keygen": "tsx scripts/plugin-release.ts keygen",
++    "plugin:sign": "tsx scripts/plugin-release.ts sign",
++    "plugin:verify": "tsx scripts/plugin-release.ts verify"
+   },
+   "dependencies": {
+     "@fontsource/vazirmatn": "^5.3.0",
+diff --git a/scripts/backup.ts b/scripts/backup.ts
+index 54f7dd4..e036f17 100644
+--- a/scripts/backup.ts
++++ b/scripts/backup.ts
+@@ -2,40 +2,119 @@
+ /**
+  * بک‌آپ دستی/زمان‌بندی‌شده از خط فرمان:   npm run backup
+  * (مناسب cron سیستم‌عامل: 0 3 * * *  cd /path/to/app && npm run backup)
+- * متغیرها: DATABASE_URL · STORAGE_DIR · BACKUP_DIR · BACKUP_KEEP
++ *
++ *   npm run backup                       بک‌آپ کامل (دیتابیس + امضا + PDF + پیوست + مدارک KYC + SESSION_SECRET مهر‌شده)
++ *   npm run backup -- keygen             ساخت «کلید بازیابی» (کلید خصوصی فقط همین یک بار چاپ می‌شود؛ آفلاین نگه دارید)
++ *   npm run backup -- list
++ *   npm run backup -- verify [پوشه] [--key emz-rk1-…]   بررسی صحت؛ با --key «تمرین بازیابی» (باز کردن راز) هم انجام می‌شود
++ *
++ * متغیرها: DATABASE_URL · STORAGE_DIR · BACKUP_DIR · BACKUP_KEEP · BACKUP_MIRROR_DIRS (چند مسیر با ویرگول) ·
++ *          BACKUP_RECOVERY_PUBLIC_KEY (یا فایل storage/backup-recovery.pub) · BACKUP_RECOVERY_KEY (فقط برای verify)
+  */
+ import fs from "node:fs";
+ import path from "node:path";
+-import { createBackup, listBackups, verifyBackup } from "../src/modules/backup/core";
++import { createBackup, generateRecoveryKeyPair, listBackups, openBackupSecrets, recoveryFingerprint, verifyBackup } from "../src/modules/backup/core";
+ 
+-function readConfigFile(): { databaseUrl?: string } {
++const storageDir = process.env.STORAGE_DIR || path.join(process.cwd(), "storage");
++
++function readConfigFile(): { databaseUrl?: string; sessionSecret?: string } {
+   try {
+-    return JSON.parse(fs.readFileSync(path.join(process.env.STORAGE_DIR || path.join(process.cwd(), "storage"), "config.json"), "utf8"));
++    return JSON.parse(fs.readFileSync(path.join(storageDir, "config.json"), "utf8"));
+   } catch {
+     return {};
+   }
+ }
+ 
++function recoveryPublicKey(): string {
++  const cands = [process.env.BACKUP_RECOVERY_PUBLIC_KEY ?? ""];
++  try {
++    cands.push(fs.readFileSync(path.join(storageDir, "backup-recovery.pub"), "utf8"));
++  } catch {
++    /* نیست */
++  }
++  for (const c of cands) {
++    const k = c.trim();
++    if (!k) continue;
++    try {
++      recoveryFingerprint(k);
++      return k;
++    } catch {
++      /* نامعتبر */
++    }
++  }
++  return "";
++}
++
++const WARN: Record<string, string> = {
++  "secret-not-sealed": "⚠ SESSION_SECRET در این بک‌آپ نیست (کلید بازیابی تنظیم نشده): `npm run backup -- keygen`",
++  "backups-inside-data-volume": "⚠ نسخه‌ها روی همان volume داده‌ی اصلی‌اند: BACKUP_DIR را روی دیسک دیگر بگذارید یا BACKUP_MIRROR_DIRS را تنظیم کنید",
++  "mirror-failed": "⚠ کپی در دست‌کم یک مقصد آینه ناموفق بود",
++};
++
+ async function main() {
+-  const storageDir = process.env.STORAGE_DIR || path.join(process.cwd(), "storage");
+-  const databaseUrl = process.env.DATABASE_URL || readConfigFile().databaseUrl || "";
++  const cfg = readConfigFile();
++  const databaseUrl = process.env.DATABASE_URL || cfg.databaseUrl || "";
+   const backupDir = process.env.BACKUP_DIR || path.join(storageDir, "backups");
+-  const arg = process.argv[2];
++  const args = process.argv.slice(2);
++  const arg = args[0];
++  const flag = (n: string) => {
++    const i = args.indexOf(`--${n}`);
++    return i >= 0 ? args[i + 1] : undefined;
++  };
++
++  if (arg === "keygen") {
++    const existing = recoveryPublicKey();
++    if (existing && !args.includes("--rotate")) throw new Error(`کلید بازیابی از قبل هست (اثر انگشت ${recoveryFingerprint(existing)}). برای ساخت کلید جدید --rotate بدهید.`);
++    if (process.env.BACKUP_RECOVERY_PUBLIC_KEY && !args.includes("--rotate")) throw new Error("BACKUP_RECOVERY_PUBLIC_KEY در محیط تنظیم شده است");
++    const k = generateRecoveryKeyPair();
++    fs.mkdirSync(storageDir, { recursive: true });
++    fs.writeFileSync(path.join(storageDir, "backup-recovery.pub"), `${k.publicKey}\n`, { mode: 0o600 });
++    console.log(`✓ کلید عمومی روی سرور ذخیره شد (اثر انگشت ${recoveryFingerprint(k.publicKey)}).\n`);
++    console.log("══ کلید بازیابی (فقط همین یک بار نمایش داده می‌شود؛ در مدیر رمز/جای آفلاین نگه دارید، نه روی این سرور) ══");
++    console.log(k.privateKey);
++    console.log("══════════════════════════════════════════════════════════════════════════════════════════════");
++    return;
++  }
+   if (arg === "list") {
+     for (const b of await listBackups(backupDir)) console.log(`${b.ok ? "✓" : "✗ ناتمام"}  ${b.name}  ${b.createdAt.toISOString()}`);
+     return;
+   }
+   if (arg === "verify") {
+-    const target = process.argv[3] ? path.resolve(process.argv[3]) : (await listBackups(backupDir)).find((b) => b.ok)?.dir;
++    const given = args[1] && !args[1].startsWith("--") ? args[1] : undefined;
++    const target = given ? path.resolve(given) : (await listBackups(backupDir)).find((b) => b.ok)?.dir;
+     if (!target) throw new Error("بک‌آپی پیدا نشد");
+     const v = await verifyBackup(target);
+-    console.log(v.ok ? `✓ ${target} سالم است` : `✗ مشکل: ${v.problems.join("\n  ")}`);
+-    process.exit(v.ok ? 0 : 1);
++    if (!v.ok) {
++      console.log(`✗ مشکل: ${v.problems.join("\n  ")}`);
++      process.exit(1);
++    }
++    console.log(`✓ ${target} سالم است`);
++    const key = flag("key") || process.env.BACKUP_RECOVERY_KEY;
++    if (v.manifest?.secrets) {
++      if (key) {
++        await openBackupSecrets(target, key);
++        console.log(`✓ تمرین بازیابی: کلید بازیابی درست است و SESSION_SECRET بازیابی‌پذیر است (اثر انگشت ${v.manifest.secrets.recipient})`);
++      } else console.log(`ℹ این بک‌آپ راز مهر‌شده دارد (اثر انگشت ${v.manifest.secrets.recipient}). برای تمرین بازیابی --key بدهید.`);
++    } else console.log("⚠ این بک‌آپ SESSION_SECRET ندارد (کلید بازیابی در زمان ساخت آن تنظیم نبوده).");
++    return;
+   }
+   if (!databaseUrl) throw new Error("DATABASE_URL تنظیم نشده است");
+-  const r = await createBackup({ databaseUrl, storageDir, backupDir, keep: Number(process.env.BACKUP_KEEP) || 14 });
++  const secret = process.env.SESSION_SECRET || cfg.sessionSecret || "";
++  const mirrorDirs = (process.env.BACKUP_MIRROR_DIRS ?? "").split(",").map((d) => d.trim()).filter(Boolean);
++  const r = await createBackup({
++    databaseUrl,
++    storageDir,
++    backupDir,
++    keep: Number(process.env.BACKUP_KEEP) || 14,
++    sessionSecret: secret || undefined,
++    recoveryPublicKey: recoveryPublicKey() || undefined,
++    mirrorDirs,
++  });
+   const rows = r.manifest.tables.reduce((a, t) => a + t.rows, 0);
+-  console.log(`✓ بک‌آپ ساخته شد: ${r.dir}\n  ${r.manifest.tables.length} جدول، ${rows} ردیف، ${r.manifest.files.length} فایل${r.removed.length ? `\n  حذف نسخه‌های قدیمی: ${r.removed.length}` : ""}`);
++  console.log(`✓ بک‌آپ ساخته شد: ${r.dir}\n  ${r.manifest.tables.length} جدول، ${rows} ردیف، ${r.manifest.files.length} فایل${r.manifest.secrets ? "، SESSION_SECRET مهر‌شده" : ""}${r.removed.length ? `\n  حذف نسخه‌های قدیمی: ${r.removed.length}` : ""}`);
++  for (const m of r.mirrors) console.log(m.ok ? `  ✓ آینه: ${m.dir}` : `  ✗ آینه ${m.dir}: ${m.error}`);
++  for (const w of r.warnings) console.log(`  ${WARN[w] ?? w}`);
++  if (r.warnings.includes("mirror-failed")) process.exitCode = 2;
+ }
+ 
+ main().catch((e) => {
+diff --git a/scripts/build-release.mjs b/scripts/build-release.mjs
+index dc397c6..b29f536 100644
+--- a/scripts/build-release.mjs
++++ b/scripts/build-release.mjs
+@@ -19,6 +19,14 @@ const version = process.env.RELEASE_VERSION || "1.0.0";
+ const out = join(root, "release");
+ const stage = join(out, "emzagar");
+ 
++// CR-05: بسته‌ی فروش فقط با افزونه‌ی «امضاشده‌ی معتبر» ساخته می‌شود (انحراف امضا = توقف)
++console.log("⓪ بررسی امضای دیجیتال افزونه‌ی وردپرس…");
++const sigCheck = spawnSync("npx", ["tsx", "scripts/plugin-release.ts", "verify"], { cwd: root, stdio: "inherit" });
++if (sigCheck.status !== 0) {
++  console.error("✗ افزونه‌ی وردپرس امضای معتبر ندارد؛ ابتدا «npm run plugin:sign» را روی دستگاه ناشر اجرا کنید.");
++  process.exit(sigCheck.status ?? 1);
++}
++
+ console.log("① ساخت پروژه (حالت standalone، بدون نیاز به دیتابیس)…");
+ const build = spawnSync("npm", ["run", "build"], {
+   cwd: root,
+diff --git a/scripts/e2e.ts b/scripts/e2e.ts
+index ecfa97f..fc922d6 100644
+--- a/scripts/e2e.ts
++++ b/scripts/e2e.ts
+@@ -78,6 +78,8 @@ function serverEnv(): Record<string, string> {
+     PDF_FONT_DIR: path.resolve(ROOT, "assets/fonts"),
+     BACKUP_ENABLED: "1",
+     SEED_DEMO: "0",
++    // CR-03: آزمون‌های مرورگری نصب‌کننده را مثل کاربر واقعی و بدون خواندن فایل کلید می‌روند؛ فقط در این محیط آزمایشی صراحتاً باز است
++    INSTALL_OPEN: "1",
+     ...(USE_SIM ? { EXTERNAL_SIM_URL: `http://127.0.0.1:${SIM_PORT}`, EXTERNAL_TIMEOUT_SCALE: "0.1" } : {}),
+   };
+ }
+diff --git a/scripts/install-vps.sh b/scripts/install-vps.sh
+index 6152ef0..3687150 100644
+--- a/scripts/install-vps.sh
++++ b/scripts/install-vps.sh
+@@ -62,6 +62,8 @@ DB_PASSWORD=$(rnd)
+ SESSION_SECRET=$(rnd)
+ CRON_SECRET=$(rnd)
+ INSTALL_KEY=$(rnd | cut -c1-16)
++BACKUP_PASSPHRASE=$(rnd)
++BACKUP_DIR=/app/backups
+ LICENSE_SERVER_URL=https://license.emzagar.ir
+ LICENSE_PUBLIC_KEY=
+ LICENSE_REQUIRED=0
+@@ -101,6 +103,8 @@ cat <<DONE
+  ۲) کلید نصب (در صفحه‌ی نصب بخواهد): $KEY
+  ۳) پس از ساخت مدیر کل: «پلتفرم ← لایسنس و به‌روزرسانی» → کلید لایسنس را فعال کنید.
+  ۴) افزونه‌ی وردپرس را از «وردپرس و ووکامرس» در پنل دانلود کنید.
++ ۵) ⚠ رمز بک‌آپ (BACKUP_PASSPHRASE) را همین حالا از فایل .env بردارید و «بیرون از این سرور» نگه دارید؛ بدون آن بازیابی KYC/کلید امنیتی ممکن نیست.
++    سپس برای نسخه‌ی بیرونی: BACKUP_MIRROR=user@host:/path (یا mount دیگر) را در .env بگذارید.
+  بک‌آپ‌ها: $DIR/backups   ·   به‌روزرسانی: ./scripts/vps-update.sh <فایل-zip-نسخه‌ی-جدید>
+ ════════════════════════════════════════════════════
+ DONE
+diff --git a/scripts/plugin-release.ts b/scripts/plugin-release.ts
+new file mode 100644
+index 0000000..f618e67
+--- /dev/null
++++ b/scripts/plugin-release.ts
+@@ -0,0 +1,64 @@
++#!/usr/bin/env -S npx tsx
++/**
++ * امضای انتشار افزونه‌ی وردپرس (CR-05) — فقط روی «دستگاه ناشر» اجرا می‌شود، نه روی سرور ابر.
++ *
++ *   npm run plugin:keygen -- <keyId> <فایل-خروجی-کلید-خصوصی>   ساخت جفت‌کلید Ed25519 (کلید خصوصی را آفلاین نگه دارید)
++ *   npm run plugin:sign                                        امضای افزونه (کلید: EMZ_RELEASE_SIGNING_KEY_FILE و EMZ_RELEASE_KEY_ID)
++ *   npm run plugin:verify                                      بررسی اینکه امضای ثبت‌شده با فایل‌های فعلی و کلید پین‌شده می‌خواند
++ *
++ * پس از هر تغییر در wordpress-plugin/ باید دوباره `plugin:sign` اجرا شود (آزمون tests/unit/wp-release.test.ts و
++ * `plugin:verify` در ساخت بسته‌ی فروش، هر انحراف را رد می‌کنند).
++ */
++import fs from "node:fs";
++import path from "node:path";
++import {
++  buildManifest,
++  collectPluginFiles,
++  generateSigningKey,
++  headerVersion,
++  PLUGIN_ROOT,
++  RELEASE_MANIFEST,
++  RELEASE_SIG,
++  signManifestBytes,
++  trustedKeysFromPhp,
++  verifyBundledRelease,
++} from "../src/lib/wp-release";
++
++function fail(msg: string): never {
++  console.error("✗", msg);
++  process.exit(1);
++}
++
++const [cmd, a1, a2] = process.argv.slice(2);
++
++if (cmd === "keygen") {
++  if (!a1 || !a2) fail("استفاده:  npm run plugin:keygen -- <keyId> <فایل-کلید-خصوصی>   (مثلاً emz-rel-2027-a ~/keys/emz-a.pem)");
++  const out = path.resolve(a2);
++  if (fs.existsSync(out)) fail(`فایل ${out} از قبل وجود دارد؛ رونویسی نمی‌شود.`);
++  if (out.startsWith(process.cwd() + path.sep)) fail("کلید خصوصی نباید داخل پوشه‌ی پروژه (و مخزن گیت) ذخیره شود.");
++  const k = generateSigningKey();
++  fs.writeFileSync(out, k.privatePem, { mode: 0o600 });
++  console.log(`✓ کلید خصوصی ذخیره شد: ${out}  (آفلاین و پشتیبان‌گیری‌شده نگه دارید؛ هرگز روی سرور ابر نگذارید)`);
++  console.log(`\nاین سطر را به KEYS در wordpress-plugin/emzagar-contracts/includes/class-emzagar-release.php اضافه کنید:\n\t\t'${a1}' => '${k.publicRaw}',`);
++} else if (cmd === "sign") {
++  const keyFile = process.env.EMZ_RELEASE_SIGNING_KEY_FILE;
++  const keyId = process.env.EMZ_RELEASE_KEY_ID;
++  if (!keyFile || !keyId) fail("EMZ_RELEASE_SIGNING_KEY_FILE و EMZ_RELEASE_KEY_ID را تنظیم کنید.");
++  if (!trustedKeysFromPhp()[keyId]) fail(`کلید ${keyId} در فهرست KEYS افزونه پین نشده است؛ بسته‌ای که امضا شود هیچ افزونه‌ای نمی‌پذیرد.`);
++  const files = collectPluginFiles();
++  const version = headerVersion(fs.readFileSync(path.join(PLUGIN_ROOT, "emzagar-contracts.php"), "utf8"));
++  if (!version) fail("نسخه‌ی افزونه در هدر پیدا نشد.");
++  const manifest = Buffer.from(JSON.stringify(buildManifest(files, version), null, 2) + "\n");
++  const sig = signManifestBytes(manifest, fs.readFileSync(keyFile, "utf8"), keyId);
++  fs.writeFileSync(path.join(PLUGIN_ROOT, RELEASE_MANIFEST), manifest);
++  fs.writeFileSync(path.join(PLUGIN_ROOT, RELEASE_SIG), sig);
++  const v = verifyBundledRelease(PLUGIN_ROOT, trustedKeysFromPhp());
++  if (!v.ok) fail(`امضا ساخته شد ولی با کلید پین‌شده نمی‌خواند: ${v.error}`);
++  console.log(`✓ افزونه‌ی ${version} با کلید ${keyId} امضا شد (${Object.keys(v.manifest.files).length} فایل)`);
++} else if (cmd === "verify") {
++  const v = verifyBundledRelease(PLUGIN_ROOT, trustedKeysFromPhp());
++  if (!v.ok) fail(`امضای افزونه معتبر نیست (${v.error}). پس از هر تغییر، «npm run plugin:sign» را اجرا کنید.`);
++  console.log(`✓ افزونه‌ی ${v.manifest.version} امضای معتبر دارد (کلید ${v.keyId}، ${Object.keys(v.manifest.files).length} فایل)`);
++} else {
++  fail("دستور: keygen | sign | verify");
++}
+diff --git a/scripts/qa.ts b/scripts/qa.ts
+index c18194b..46737af 100644
+--- a/scripts/qa.ts
++++ b/scripts/qa.ts
+@@ -91,6 +91,8 @@ function serverEnv(): Record<string, string> {
+     PDF_FONT_DIR: path.resolve(ROOT, "assets/fonts"),
+     BACKUP_ENABLED: "0",
+     SEED_DEMO: "0",
++    // CR-03: آزمون‌های مرورگری نصب‌کننده را مثل کاربر واقعی و بدون خواندن فایل کلید می‌روند؛ فقط در این محیط آزمایشی صراحتاً باز است
++    INSTALL_OPEN: "1",
+     ...(USE_SIM ? { EXTERNAL_SIM_URL: `http://127.0.0.1:${SIM_PORT}`, EXTERNAL_TIMEOUT_SCALE: "0.1" } : {}),
+   };
+ }
+diff --git a/scripts/restore.ts b/scripts/restore.ts
+index 8384b43..9ba28eb 100644
+--- a/scripts/restore.ts
++++ b/scripts/restore.ts
+@@ -1,7 +1,11 @@
+ #!/usr/bin/env -S npx tsx
+ /**
+- * بازیابی از بک‌آپ:   npm run restore -- <مسیر پوشه‌ی بک‌آپ> --yes
++ * بازیابی از بک‌آپ:   npm run restore -- <مسیر پوشه‌ی بک‌آپ> --key emz-rk1-… --yes
+  * ⚠️ محتوای فعلی همه‌ی جدول‌ها با بک‌آپ جایگزین می‌شود. بدون --yes فقط صحت بک‌آپ بررسی می‌شود.
++ *
++ * اگر بک‌آپ SESSION_SECRET مهر‌شده دارد، «کلید بازیابی» لازم است (--key یا متغیر BACKUP_RECOVERY_KEY): راز باز و در
++ * storage/config.json نوشته می‌شود تا مدارک KYC و رازهای رمزنگاری‌شده‌ی دیتابیس دوباره خوانا شوند.
++ * --skip-secrets: عمداً بدون راز (KYC و کلیدهای رمزنگاری‌شده خوانا نخواهند بود).
+  */
+ import fs from "node:fs";
+ import path from "node:path";
+@@ -10,9 +14,12 @@ import { SCHEMA_CREATE } from "../src/modules/install/schema-sql";
+ 
+ async function main() {
+   const args = process.argv.slice(2);
+-  const target = args.find((a) => !a.startsWith("--"));
++  const valueFlags = new Set(["--key"]);
++  const target = args.find((a, i) => !a.startsWith("--") && !valueFlags.has(args[i - 1]));
+   const yes = args.includes("--yes");
+-  if (!target) throw new Error("مسیر پوشه‌ی بک‌آپ را بدهید:  npm run restore -- storage/backups/backup-YYYYMMDD-HHMMSS --yes");
++  const ki = args.indexOf("--key");
++  const recoveryKey = (ki >= 0 ? args[ki + 1] : undefined) || process.env.BACKUP_RECOVERY_KEY;
++  if (!target) throw new Error("مسیر پوشه‌ی بک‌آپ را بدهید:  npm run restore -- storage/backups/backup-YYYYMMDD-HHMMSS --key emz-rk1-… --yes");
+   const dir = path.resolve(target);
+   const storageDir = process.env.STORAGE_DIR || path.join(process.cwd(), "storage");
+   let databaseUrl = process.env.DATABASE_URL || "";
+@@ -25,14 +32,19 @@ async function main() {
+   }
+   const v = await verifyBackup(dir);
+   if (!v.ok) throw new Error(`بک‌آپ معتبر نیست:\n  ${v.problems.join("\n  ")}`);
+-  console.log(`✓ بک‌آپ سالم است (${v.manifest!.createdAt}) — ${v.manifest!.tables.length} جدول، ${v.manifest!.files.length} فایل`);
++  const m = v.manifest!;
++  console.log(`✓ بک‌آپ سالم است (${m.createdAt}) — ${m.tables.length} جدول، ${m.files.length} فایل${m.secrets ? `، راز مهر‌شده (اثر انگشت ${m.secrets.recipient})` : "، بدون راز مهر‌شده"}`);
+   if (!yes) {
+     console.log("برای اجرای واقعی بازیابی، گزینه‌ی --yes را اضافه کنید (این کار داده‌های فعلی را جایگزین می‌کند).");
+     return;
+   }
+   if (!databaseUrl) throw new Error("DATABASE_URL تنظیم نشده است");
+-  const r = await restoreBackup({ backup: dir, databaseUrl, storageDir, schemaStatements: SCHEMA_CREATE });
++  const r = await restoreBackup({ backup: dir, databaseUrl, storageDir, schemaStatements: SCHEMA_CREATE, recoveryKey, skipSecrets: args.includes("--skip-secrets") });
+   console.log(`✓ بازیابی انجام شد: ${r.tables} جدول، ${r.rows} ردیف، ${r.files} فایل`);
++  if (r.secretsRestored) {
++    console.log("✓ SESSION_SECRET بازیابی و در storage/config.json نوشته شد.");
++    if (process.env.SESSION_SECRET) console.log("⚠ متغیر محیطی SESSION_SECRET روی config.json اولویت دارد؛ آن را حذف کنید یا با مقدار اصلی یکی کنید، وگرنه KYC خوانا نمی‌شود.");
++  } else if (m.secrets) console.log("⚠ راز بازیابی نشد (--skip-secrets): مدارک KYC خوانا نیستند.");
+ }
+ 
+ main().catch((e) => {
+diff --git a/scripts/vps-backup.sh b/scripts/vps-backup.sh
+index 06022c5..46f2579 100644
+--- a/scripts/vps-backup.sh
++++ b/scripts/vps-backup.sh
+@@ -11,10 +11,24 @@ DC="docker compose -f docker-compose.prod.yml"
+ 
+ umask 077
+ $DC exec -T db pg_dump -U emzagar -d emzagar --no-owner | gzip > "$OUT/db-$STAMP.sql.gz"
+-$DC exec -T app tar -C /app -cf - storage | gzip > "$OUT/storage-$STAMP.tar.gz"
++# (CR-04) storage شامل config.json (SESSION_SECRET) و مدارک KYC است: بدون پوشه‌ی backups (تو در تو نشود) و «رمزنگاری‌شده».
++# BACKUP_PASSPHRASE را در جای امن «بیرون از این سرور» هم نگه دارید؛ بدون آن بازیابی storage ممکن نیست.
++if [ -z "${BACKUP_PASSPHRASE:-}" ] && [ -f .env ]; then BACKUP_PASSPHRASE="$(grep '^BACKUP_PASSPHRASE=' .env | cut -d= -f2- || true)"; fi
++[ -n "${BACKUP_PASSPHRASE:-}" ] || { echo "✗ BACKUP_PASSPHRASE تنظیم نشده؛ بک‌آپ storage (شامل KYC و کلید امنیتی) بدون رمزنگاری ساخته نمی‌شود." >&2; exit 1; }
++$DC exec -T app tar -C /app --exclude='storage/backups' --exclude='storage/install-key.txt' -cf - storage | gzip \
++  | openssl enc -aes-256-cbc -pbkdf2 -iter 200000 -salt -pass env:BACKUP_PASSPHRASE > "$OUT/storage-$STAMP.tar.gz.enc"
+ 
+ # بررسی سالم‌بودن فایل‌ها
+-gzip -t "$OUT/db-$STAMP.sql.gz" && gzip -t "$OUT/storage-$STAMP.tar.gz"
+-echo "[$(date -Is)] ✓ backup $STAMP  ($(du -h "$OUT/db-$STAMP.sql.gz" | cut -f1) db, $(du -h "$OUT/storage-$STAMP.tar.gz" | cut -f1) storage)"
++gzip -t "$OUT/db-$STAMP.sql.gz"
++openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:BACKUP_PASSPHRASE -in "$OUT/storage-$STAMP.tar.gz.enc" | gzip -t
++echo "[$(date -Is)] ✓ backup $STAMP  ($(du -h "$OUT/db-$STAMP.sql.gz" | cut -f1) db, $(du -h "$OUT/storage-$STAMP.tar.gz.enc" | cut -f1) storage)"
+ 
+-find "$OUT" -maxdepth 1 -type f \( -name 'db-*.sql.gz' -o -name 'storage-*.tar.gz' \) -mtime +"$KEEP" -delete
++find "$OUT" -maxdepth 1 -type f \( -name 'db-*.sql.gz' -o -name 'storage-*.tar.gz.enc' \) -mtime +"$KEEP" -delete
++
++# (CR-04) نسخه‌ی بیرون از این دیسک/سرور: BACKUP_MIRROR = مسیر mount دیگر یا مقصد rsync (user@host:/path)
++if [ -n "${BACKUP_MIRROR:-}" ]; then
++  rsync -a --delete-after --include='db-*.sql.gz' --include='storage-*.tar.gz.enc' --exclude='*' "$OUT/" "$BACKUP_MIRROR/" \
++    && echo "[$(date -Is)] ✓ mirror → $BACKUP_MIRROR" || { echo "[$(date -Is)] ✗ mirror ناموفق" >&2; exit 2; }
++else
++  echo "[$(date -Is)] ⚠ BACKUP_MIRROR تنظیم نشده: نسخه‌ها فقط روی همین سرورند (در صورت از دست رفتن سرور همه‌چیز از بین می‌رود)." >&2
++fi
+diff --git a/src/app/api/v1/connect/update-check/route.ts b/src/app/api/v1/connect/update-check/route.ts
+index 882e37f..c4cb7d6 100644
+--- a/src/app/api/v1/connect/update-check/route.ts
++++ b/src/app/api/v1/connect/update-check/route.ts
+@@ -2,6 +2,7 @@ import { authenticateApi } from "@/modules/api/service";
+ import { cloudOrigin, errJson, okJson } from "@/modules/connect/http";
+ import { getLicenseInfo } from "@/modules/license/client";
+ import { readPluginMeta } from "@/lib/wp-plugin";
++import { verifyBundledRelease } from "@/lib/wp-release";
+ import { APP_VERSION } from "@/lib/version";
+ 
+ export const dynamic = "force-dynamic";
+@@ -21,7 +22,10 @@ export async function GET(req: Request) {
+ 
+   const lic = await getLicenseInfo();
+   const required = process.env.LICENSE_REQUIRED === "1";
+-  const blocked = required && !lic.licensed ? "برای دریافت نسخه‌ی جدید افزونه، لایسنس ابر باید فعال باشد." : "";
++  // CR-05: فقط بسته‌ای عرضه می‌شود که امضای معتبر ناشر دارد و با فایل‌های فعلی می‌خواند (افزونه هم مستقل دوباره می‌سنجد)
++  const rel = verifyBundledRelease();
++  const signed = rel.ok && rel.manifest.version === meta.version;
++  const blocked = required && !lic.licensed ? "برای دریافت نسخه‌ی جدید افزونه، لایسنس ابر باید فعال باشد." : !signed ? "بسته‌ی افزونه‌ی این ابر امضای دیجیتال معتبر ناشر ندارد؛ برای امنیت عرضه نمی‌شود. نسخه‌ی رسمی را نصب کنید." : "";
+   const origin = cloudOrigin(req);
+ 
+   return okJson({
+@@ -34,6 +38,7 @@ export async function GET(req: Request) {
+       changelog: meta.changelog,
+       package: blocked || !origin ? "" : `${origin}/api/wordpress/plugin`,
+       blocked,
++      release: signed && rel.ok ? { signed: true, keyId: rel.keyId, version: rel.manifest.version } : { signed: false },
+     },
+     license: {
+       state: lic.state,
+diff --git a/src/app/api/wordpress/plugin/route.ts b/src/app/api/wordpress/plugin/route.ts
+index 258461c..55498ee 100644
+--- a/src/app/api/wordpress/plugin/route.ts
++++ b/src/app/api/wordpress/plugin/route.ts
+@@ -1,6 +1,6 @@
+ import fs from "node:fs";
+-import path from "node:path";
+-import { zipSync, strToU8 } from "fflate";
++import { buildPluginZip } from "@/lib/wp-plugin-zip";
++import { PLUGIN_ROOT, PLUGIN_SLUG } from "@/lib/wp-release";
+ import { cloudOrigin } from "@/modules/connect/http";
+ import { createPairingToken } from "@/modules/connect/service";
+ import { getTeamForApi } from "@/modules/tenancy/context";
+@@ -10,33 +10,21 @@ import { clientIp } from "@/modules/connect/http";
+ export const dynamic = "force-dynamic";
+ export const runtime = "nodejs";
+ 
+-const PLUGIN_DIR = path.join(process.cwd(), "wordpress-plugin", "emzagar-contracts");
+-const SLUG = "emzagar-contracts";
+-
+-function collect(dir: string, base = ""): Record<string, Uint8Array> {
+-  const out: Record<string, Uint8Array> = {};
+-  for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+-    if (e.name.startsWith(".") || e.name === "emzagar-config.php") continue;
+-    const rel = base ? `${base}/${e.name}` : e.name;
+-    const full = path.join(dir, e.name);
+-    if (e.isDirectory()) Object.assign(out, collect(full, rel));
+-    else out[`${SLUG}/${rel}`] = new Uint8Array(fs.readFileSync(full));
+-  }
+-  return out;
+-}
+-
+ /**
+  * دانلود افزونه‌ی «از پیش پیکربندی‌شده»:
+  * آدرس ابر داخل افزونه نوشته می‌شود تا کاربر هیچ آدرسی وارد نکند.
+  * اگر کاربر وارد پنل شده باشد (?pair=1)، یک کد جفت‌سازی یک‌بارمصرف هم داخل بسته قرار می‌گیرد
+  * تا افزونه خودکار به همان فضای کاری موجود وصل شود.
++ *
++ * امنیت (CR-05): بسته شامل RELEASE.json + RELEASE.sig (امضای Ed25519 ناشر) است و افزونه‌ی نصب‌شده پیش از هر
++ * به‌روزرسانی آن را با کلید پین‌شده‌ی خودش بررسی می‌کند؛ فایل emzagar-config.php فقط از قالب ثابت ساخته می‌شود.
+  */
+ export async function GET(req: Request) {
+   const rl = rateLimit(`wp:zip:${clientIp(req)}`, 30, 10 * 60_000);
+   if (!rl.ok) return new Response("Too many requests", { status: 429 });
+   const origin = cloudOrigin(req);
+   if (!origin) return new Response("Cannot determine the cloud address. Set APP_URL.", { status: 500 });
+-  if (!fs.existsSync(PLUGIN_DIR)) return new Response("Plugin files not found", { status: 404 });
++  if (!fs.existsSync(PLUGIN_ROOT)) return new Response("Plugin files not found", { status: 404 });
+ 
+   let pairing = "";
+   if (new URL(req.url).searchParams.get("pair") === "1") {
+@@ -44,14 +32,16 @@ export async function GET(req: Request) {
+     if (team) pairing = await createPairingToken(team.workspaceId, team.id);
+   }
+ 
+-  const files = collect(PLUGIN_DIR);
+-  const config = `<?php\n// Generated by the Emzagar cloud — do not edit.\nif ( ! defined( 'ABSPATH' ) ) {\n\texit;\n}\nreturn array(\n\t'cloud_url' => '${origin}',\n\t'pairing'   => '${pairing}',\n);\n`;
+-  files[`${SLUG}/emzagar-config.php`] = strToU8(config);
+-  const zip = zipSync(files, { level: 6 });
++  let zip: Uint8Array;
++  try {
++    zip = buildPluginZip(origin, pairing);
++  } catch {
++    return new Response("Cannot build the plugin package", { status: 500 });
++  }
+   return new Response(Buffer.from(zip), {
+     headers: {
+       "Content-Type": "application/zip",
+-      "Content-Disposition": `attachment; filename="${SLUG}.zip"`,
++      "Content-Disposition": `attachment; filename="${PLUGIN_SLUG}.zip"`,
+       "Cache-Control": "no-store",
+     },
+   });
+diff --git a/src/app/platform/page.tsx b/src/app/platform/page.tsx
+index 5240512..9da876b 100644
+--- a/src/app/platform/page.tsx
++++ b/src/app/platform/page.tsx
+@@ -12,6 +12,7 @@ import { faTime } from "@/lib/jalali";
+ import { backupOverview } from "@/modules/backup/service";
+ import { runBackupNowAction, verifyBackupAction } from "@/modules/backup/actions";
+ import { DatabaseBackup, ShieldCheck } from "lucide-react";
++import RecoveryKeyCard from "@/components/RecoveryKeyCard";
+ 
+ export const dynamic = "force-dynamic";
+ 
+@@ -73,7 +74,7 @@ export default async function PlatformHome({ searchParams }: { searchParams: Pro
+       </div>
+       <section className="card mb-5 space-y-3">
+         <div className="flex flex-wrap items-center justify-between gap-3">
+-          <h2 className="flex items-center gap-2 font-bold"><DatabaseBackup size={18} />بک‌آپ دیتابیس و پوشه‌ی امضاها/PDFها</h2>
++          <h2 className="flex items-center gap-2 font-bold"><DatabaseBackup size={18} />بک‌آپ دیتابیس، امضاها/PDFها، مدارک KYC و کلید امنیتی</h2>
+           <div className="flex flex-wrap gap-2">
+             <form action={verifyBackupAction}><button className="btn-secondary btn-sm"><ShieldCheck size={14} />بررسی صحت آخرین بک‌آپ</button></form>
+             <form action={runBackupNowAction}><button className="btn-primary btn-sm">بک‌آپ فوری</button></form>
+@@ -84,6 +85,15 @@ export default async function PlatformHome({ searchParams }: { searchParams: Pro
+           {bk.cfg.enabled ? `بک‌آپ خودکار هر ${fa(bk.cfg.intervalHours)} ساعت و نگهداری ${fa(bk.cfg.keep)} نسخه‌ی آخر.` : "بک‌آپ خودکار خاموش است (BACKUP_ENABLED=0)."}
+           {" "}آخرین اجرا: {bk.last ? <>{faTime(bk.last.at)} — {bk.last.ok ? "موفق" : <b className="text-rose-600">ناموفق: {bk.last.error}</b>}</> : "—"}
+         </p>
++        <RecoveryKeyCard
++          configured={bk.recovery.configured}
++          fingerprint={bk.recovery.fingerprint}
++          fromEnv={bk.recovery.fromEnv}
++          insideDataVolume={bk.insideDataVolume}
++          mirrorCount={bk.mirrorCount}
++          warnings={bk.last?.warnings ?? []}
++          mirrorErrors={bk.last?.mirrorErrors ?? []}
++        />
+         {bk.list.length > 0 && (
+           <ul className="grid gap-1 text-xs text-stone-600 sm:grid-cols-2">
+             {bk.list.map((b) => (<li key={b.name} className="flex justify-between gap-3 rounded-lg bg-stone-50 px-3 py-1.5"><span dir="ltr" className="font-mono">{b.name}</span><span>{b.ok ? faTime(b.createdAt) : "ناتمام"}</span></li>))}
+diff --git a/src/components/InstallWizard.tsx b/src/components/InstallWizard.tsx
+index 412199c..0e320ec 100644
+--- a/src/components/InstallWizard.tsx
++++ b/src/components/InstallWizard.tsx
+@@ -74,7 +74,7 @@ export default function InstallWizard({ status }: { status: InstallStatus }) {
+     ? { mode: "url", url: db.url }
+     : { mode: "simple", host: db.host, port: db.port, name: db.name, user: db.user, password: db.password, ssl: db.ssl };
+   const pw = useMemo(() => strength(acc.password), [acc.password]);
+-  const blocked = !status.nodeOk || !status.storageOk || (status.databaseFromEnv && !status.databaseConnected);
++  const blocked = !status.nodeOk || !status.storageOk || status.stateUnknown || (status.databaseFromEnv && !status.databaseConnected);
+ 
+   const testDb = async () => {
+     setTesting(true);
+@@ -165,11 +165,12 @@ export default function InstallWizard({ status }: { status: InstallStatus }) {
+                 <Check1 ok={status.https} warn hint="سایت با http باز شده است. برای امنیت بهتر، گواهی SSL را در پنل هاست فعال کنید (رایگان است).">اتصال امن (HTTPS)</Check1>
+               </ul>
+               {status.keyRequired && (
+-                <div className="mt-5"><Field label="کلید نصب" hint="همان مقداری که در تنظیمات سرور به‌عنوان INSTALL_KEY گذاشته‌اید."><input className="input ltr text-left" dir="ltr" type="password" autoComplete="off" value={installKey} onChange={(e) => setInstallKey(e.target.value)} /></Field></div>
++                <div className="mt-5"><Field label="کلید نصب" hint={status.keySource === "env" ? "همان مقداری که در تنظیمات سرور به‌عنوان INSTALL_KEY گذاشته‌اید." : "برای اثبات اینکه شما مالک سرور هستید: کلید را در فایل storage/install-key.txt (مدیریت فایل هاست) یا در لاگ سرور (docker compose logs app) پیدا کنید."}><input className="input ltr text-left" dir="ltr" type="password" autoComplete="off" value={installKey} onChange={(e) => setInstallKey(e.target.value)} /></Field></div>
+               )}
+               <button className="btn-primary mt-7 w-full !min-h-12" disabled={blocked || (status.keyRequired && !installKey)} onClick={() => setStep(needDb ? "database" : "account")}>
+                 شروع نصب<ArrowLeft size={16} />
+               </button>
++              {status.stateUnknown && <p className="mt-3 text-center text-xs font-bold text-rose-700">اتصال به دیتابیس پیکربندی‌شده برقرار نیست؛ برای امنیت نصب‌کننده تا اتصال دیتابیس بسته است.</p>}
+               {blocked && <p className="mt-3 text-center text-xs text-rose-700">ابتدا موارد قرمز بالا را برطرف کنید و صفحه را دوباره باز کنید.</p>}
+             </div>
+           )}
+diff --git a/src/components/RecoveryKeyCard.tsx b/src/components/RecoveryKeyCard.tsx
+new file mode 100644
+index 0000000..13a769e
+--- /dev/null
++++ b/src/components/RecoveryKeyCard.tsx
+@@ -0,0 +1,72 @@
++"use client";
++
++import { useState, useTransition } from "react";
++import { AlertTriangle, Check, Copy, KeyRound, ShieldAlert, ShieldCheck } from "lucide-react";
++import { generateRecoveryKeyAction, type RecoveryKeyResult } from "@/modules/backup/actions";
++
++type Props = {
++  configured: boolean;
++  fingerprint: string;
++  fromEnv: boolean;
++  insideDataVolume: boolean;
++  mirrorCount: number;
++  warnings: string[];
++  mirrorErrors: string[];
++};
++
++/** CR-04: وضعیت حفاظت بک‌آپ + ساخت «کلید بازیابی» (کلید خصوصی فقط یک بار نمایش داده می‌شود) */
++export default function RecoveryKeyCard({ configured, fingerprint, fromEnv, insideDataVolume, mirrorCount, warnings, mirrorErrors }: Props) {
++  const [pending, start] = useTransition();
++  const [result, setResult] = useState<RecoveryKeyResult | null>(null);
++  const [saved, setSaved] = useState(false);
++  const [copied, setCopied] = useState(false);
++
++  const generate = () => {
++    if (configured && !window.confirm("کلید بازیابی جدید ساخته می‌شود. بک‌آپ‌های قبلی همچنان فقط با کلید قبلی باز می‌شوند. ادامه می‌دهید؟")) return;
++    start(async () => {
++      setSaved(false);
++      setResult(await generateRecoveryKeyAction());
++    });
++  };
++
++  return (
++    <div className="space-y-3 rounded-2xl border border-ink/10 bg-stone-50 p-4 text-xs leading-7">
++      <h3 className="flex items-center gap-2 text-sm font-bold">
++        {configured ? <ShieldCheck size={16} className="text-emerald-700" /> : <ShieldAlert size={16} className="text-rose-600" />}
++        حفاظت کامل بک‌آپ (KYC + کلید امنیتی)
++      </h3>
++      <ul className="space-y-1.5 text-stone-700">
++        <li>
++          {configured ? "✅" : "❌"} کلید بازیابی: {configured ? <>فعال — اثر انگشت <b dir="ltr" className="font-mono">{fingerprint}</b></> : <b className="text-rose-700">تنظیم نشده؛ SESSION_SECRET در بک‌آپ نیست و مدارک KYC پس از فاجعه قابل خواندن نخواهند بود.</b>}
++        </li>
++        <li>
++          {insideDataVolume ? "⚠️" : "✅"} محل نسخه‌ها: {insideDataVolume ? <b className="text-amber-700">روی همان volume داده‌ی اصلی؛ با از دست رفتن آن، بک‌آپ‌ها هم می‌روند. BACKUP_DIR را روی دیسک/volume دیگر بگذارید یا BACKUP_MIRROR_DIRS را تنظیم کنید.</b> : "خارج از volume داده‌ی اصلی یا با آینه‌ی بیرونی"}
++          {mirrorCount > 0 && <> — {mirrorCount.toLocaleString("fa-IR")} مقصد آینه</>}
++        </li>
++      </ul>
++      {warnings.includes("mirror-failed") && <p role="alert" className="rounded-xl border border-rose-200 bg-rose-50 p-2.5 text-rose-700">کپی در مقصد آینه ناموفق بود: {mirrorErrors.join(" ؛ ") || "نامشخص"}</p>}
++      {warnings.includes("secret-not-sealed") && <p role="alert" className="rounded-xl border border-amber-200 bg-amber-50 p-2.5 text-amber-800">آخرین بک‌آپ بدون کلید امنیتی گرفته شد؛ کلید بازیابی بسازید.</p>}
++
++      {!fromEnv && (
++        <button type="button" onClick={generate} disabled={pending} className={configured ? "btn-secondary btn-sm" : "btn-primary btn-sm"}>
++          <KeyRound size={14} />{pending ? "در حال ساخت…" : configured ? "ساخت کلید بازیابی جدید" : "ساخت کلید بازیابی و بک‌آپ کامل"}
++        </button>
++      )}
++
++      {result && !result.ok && <p role="alert" className="text-rose-700">{result.error}</p>}
++      {result?.ok && (
++        <div role="alert" className="space-y-2 rounded-xl border-2 border-amber-400 bg-amber-50 p-3 text-amber-900">
++          <p className="flex items-center gap-2 font-bold"><AlertTriangle size={16} />این کلید فقط همین یک بار نمایش داده می‌شود</p>
++          <p>آن را در مدیر رمز یا جای امن آفلاین نگه دارید (نه روی همین سرور). بدون آن، بازیابی کامل پس از از دست رفتن سرور ممکن نیست؛ و هر کس آن را داشته باشد می‌تواند رازهای بک‌آپ‌ها را باز کند.</p>
++          <div className="flex items-center gap-2">
++            <code dir="ltr" className="block flex-1 select-all break-all rounded-lg bg-white p-2 font-mono text-[11px]">{result.privateKey}</code>
++            <button type="button" className="btn-secondary btn-sm" onClick={() => { void navigator.clipboard?.writeText(result.privateKey); setCopied(true); }}>{copied ? <Check size={14} /> : <Copy size={14} />}</button>
++          </div>
++          <p>اثر انگشت: <b dir="ltr" className="font-mono">{result.fingerprint}</b> · {result.backupOk ? "بک‌آپ کامل جدید با رازِ مهر‌شده ساخته شد." : "ساخت بک‌آپ فوری ناموفق بود؛ دوباره «بک‌آپ فوری» بزنید."}</p>
++          <label className="flex items-center gap-2 font-bold"><input type="checkbox" checked={saved} onChange={(e) => setSaved(e.target.checked)} />کلید را در جای امن ذخیره کردم</label>
++          {saved && <button type="button" className="btn-primary btn-sm" onClick={() => setResult(null)}>بستن و پاک کردن از صفحه</button>}
++        </div>
++      )}
++    </div>
++  );
++}
+diff --git a/src/lib/wp-plugin-zip.ts b/src/lib/wp-plugin-zip.ts
+new file mode 100644
+index 0000000..350e131
+--- /dev/null
++++ b/src/lib/wp-plugin-zip.ts
+@@ -0,0 +1,25 @@
++import { strToU8, zipSync } from "fflate";
++import { collectPluginFiles, PLUGIN_CONFIG, PLUGIN_ROOT, PLUGIN_SLUG, RELEASE_MANIFEST, RELEASE_SIG, renderPluginConfig } from "@/lib/wp-release";
++import fs from "node:fs";
++import path from "node:path";
++
++/** زمان ثابت فایل‌های zip: بسته‌ی یکسان ← بایت‌های یکسان (قابل بازتولید و قابل مقایسه) */
++const FIXED_MTIME = Date.UTC(2020, 0, 1);
++
++/**
++ * بسته‌ی افزونه‌ی «از پیش پیکربندی‌شده»: همه‌ی فایل‌های امضاشده‌ی ناشر + RELEASE.json/RELEASE.sig + emzagar-config.php.
++ * emzagar-config.php تنها فایلی است که ابر می‌سازد و فقط از قالب ثابت `renderPluginConfig` ساخته می‌شود.
++ */
++export function buildPluginZip(origin: string, pairing = "", dir = PLUGIN_ROOT): Uint8Array {
++  const files: Record<string, Uint8Array> = {};
++  const add = (rel: string, data: Uint8Array) => {
++    files[`${PLUGIN_SLUG}/${rel}`] = data;
++  };
++  for (const [rel, data] of Object.entries(collectPluginFiles(dir))) add(rel, data);
++  for (const f of [RELEASE_MANIFEST, RELEASE_SIG]) {
++    const p = path.join(dir, f);
++    if (fs.existsSync(p)) add(f, new Uint8Array(fs.readFileSync(p)));
++  }
++  add(PLUGIN_CONFIG, strToU8(renderPluginConfig(origin, pairing)));
++  return zipSync(files, { level: 6, mtime: FIXED_MTIME });
++}
+diff --git a/src/lib/wp-release.ts b/src/lib/wp-release.ts
+new file mode 100644
+index 0000000..4f02bf2
+--- /dev/null
++++ b/src/lib/wp-release.ts
+@@ -0,0 +1,206 @@
++import crypto from "node:crypto";
++import fs from "node:fs";
++import path from "node:path";
++
++/**
++ * امضای دیجیتال انتشار افزونه‌ی وردپرس (CR-05)
++ * ───────────────────────────────────────────────
++ * مدل اعتماد: «ابر» (سرور خریدار) فقط پخش‌کننده است، نه مرجع اعتماد. هر انتشار افزونه با کلید خصوصی Ed25519
++ * ناشر (که هرگز روی هیچ سرور ابری نیست) امضا می‌شود و کلید عمومی در کد افزونه «پین» شده است
++ * (wordpress-plugin/emzagar-contracts/includes/class-emzagar-release.php). پس حتی اگر پاسخ ابر دستکاری شود،
++ * یا ابر هک شود، افزونه‌ی نصب‌شده بسته‌ی بدون امضای معتبر ناشر را هرگز نصب نمی‌کند.
++ *
++ *   RELEASE.json  فهرست «همه‌ی» فایل‌های افزونه + SHA-256 هرکدام + نسخه (بایت‌های همین فایل امضا می‌شود)
++ *   RELEASE.sig   emz-sig-v1 <keyId> <base64(Ed25519(RELEASE.json))>
++ *
++ * فایل emzagar-config.php (آدرس ابر) را ابر برای هر سایت می‌سازد و در امضا نیست؛ افزونه آن را فقط وقتی می‌پذیرد که
++ * «دقیقاً» برابر قالب ثابتِ renderPluginConfig با آدرس ابرِ شناخته‌شده‌ی خودش باشد — هیچ کد PHP دلخواهی از آن نمی‌گذرد.
++ */
++export const RELEASE_MANIFEST = "RELEASE.json";
++export const RELEASE_SIG = "RELEASE.sig";
++export const PLUGIN_CONFIG = "emzagar-config.php";
++export const RELEASE_SCHEMA = 1;
++export const PLUGIN_SLUG = "emzagar-contracts";
++export const PLUGIN_ROOT = path.join(process.cwd(), "wordpress-plugin", PLUGIN_SLUG);
++const PHP_RELEASE_CLASS = "includes/class-emzagar-release.php";
++
++export type TrustedKeys = Record<string, string>; // keyId → base64 (۳۲ بایت خام Ed25519)
++
++export interface ReleaseManifest {
++  schema: number;
++  product: string;
++  slug: string;
++  version: string;
++  issuedAt: string;
++  files: Record<string, string>;
++}
++
++/** قالب ثابت و بایت‌به‌بایت emzagar-config.php؛ باید دقیقاً با Emzagar_Release::expected_config() یکی باشد */
++export function renderPluginConfig(origin: string, pairing = ""): string {
++  if (!/^https?:\/\/[A-Za-z0-9.\-:]+$/.test(origin)) throw new Error("invalid_cloud_origin");
++  if (!/^[A-Za-z0-9_\-]*$/.test(pairing)) throw new Error("invalid_pairing");
++  return `<?php\n// Generated by the Emzagar cloud — do not edit.\nif ( ! defined( 'ABSPATH' ) ) {\n\texit;\n}\nreturn array(\n\t'cloud_url' => '${origin}',\n\t'pairing'   => '${pairing}',\n);\n`;
++}
++
++const sha256hex = (b: Uint8Array) => crypto.createHash("sha256").update(b).digest("hex");
++
++/** فایل‌های قابل امضا (همه‌ی فایل‌های افزونه به‌جز نقطه‌فایل‌ها، پیکربندی تولیدشده‌ی ابر و خود امضا) */
++export function collectPluginFiles(dir = PLUGIN_ROOT, base = ""): Record<string, Uint8Array> {
++  const out: Record<string, Uint8Array> = {};
++  for (const e of fs.readdirSync(dir, { withFileTypes: true }).sort((a, b) => (a.name < b.name ? -1 : 1))) {
++    if (e.name.startsWith(".")) continue;
++    const rel = base ? `${base}/${e.name}` : e.name;
++    if (!base && [PLUGIN_CONFIG, RELEASE_MANIFEST, RELEASE_SIG].includes(e.name)) continue;
++    const full = path.join(dir, e.name);
++    if (e.isDirectory()) Object.assign(out, collectPluginFiles(full, rel));
++    else if (e.isFile()) out[rel] = new Uint8Array(fs.readFileSync(full));
++  }
++  return out;
++}
++
++export function buildManifest(files: Record<string, Uint8Array>, version: string, issuedAt = new Date().toISOString()): ReleaseManifest {
++  const sorted: Record<string, string> = {};
++  for (const k of Object.keys(files).sort()) sorted[k] = sha256hex(files[k]);
++  return { schema: RELEASE_SCHEMA, product: PLUGIN_SLUG, slug: PLUGIN_SLUG, version, issuedAt, files: sorted };
++}
++
++/** کلید خام ۳۲ بایتی Ed25519 ← KeyObject عمومی */
++export function publicKeyFromRaw(rawB64: string): crypto.KeyObject {
++  const raw = Buffer.from(rawB64, "base64");
++  if (raw.length !== 32) throw new Error("bad_public_key");
++  const spkiPrefix = Buffer.from("302a300506032b6570032100", "hex");
++  return crypto.createPublicKey({ key: Buffer.concat([spkiPrefix, raw]), format: "der", type: "spki" });
++}
++
++export function rawPublicKey(pub: crypto.KeyObject): string {
++  const der = pub.export({ format: "der", type: "spki" }) as Buffer;
++  return der.subarray(der.length - 32).toString("base64");
++}
++
++export function generateSigningKey(): { privatePem: string; publicRaw: string } {
++  const { privateKey, publicKey } = crypto.generateKeyPairSync("ed25519");
++  return { privatePem: privateKey.export({ format: "pem", type: "pkcs8" }).toString(), publicRaw: rawPublicKey(publicKey) };
++}
++
++export function signManifestBytes(manifestBytes: Uint8Array, privatePem: string, keyId: string): string {
++  if (!/^[A-Za-z0-9._-]{3,64}$/.test(keyId)) throw new Error("bad_key_id");
++  const sig = crypto.sign(null, manifestBytes, crypto.createPrivateKey(privatePem));
++  return `emz-sig-v1 ${keyId} ${sig.toString("base64")}\n`;
++}
++
++/** کلیدهای پین‌شده را از همان فایل PHP افزونه می‌خواند (منبع حقیقت واحد) */
++export function trustedKeysFromPhp(dir = PLUGIN_ROOT): TrustedKeys {
++  const php = fs.readFileSync(path.join(dir, PHP_RELEASE_CLASS), "utf8");
++  const body = /const\s+KEYS\s*=\s*array\(([\s\S]*?)\);/.exec(php)?.[1] ?? "";
++  const keys: TrustedKeys = {};
++  for (const m of body.matchAll(/'([A-Za-z0-9._-]+)'\s*=>\s*'([A-Za-z0-9+/=]{44})'/g)) keys[m[1]] = m[2];
++  return keys;
++}
++
++/** نسخه‌ی هدر افزونه («Version: 2.3.0») */
++export function headerVersion(php: string): string {
++  return /^[ \t/*#@]*Version:[ \t]*(\d{1,4}\.\d{1,4}\.\d{1,4}(?:-[0-9A-Za-z.]{1,20})?)[ \t]*$/m.exec(php.slice(0, 8000))?.[1] ?? "";
++}
++
++export type VerifyResult = { ok: true; manifest: ReleaseManifest; keyId: string } | { ok: false; error: string };
++
++export interface VerifyOptions {
++  keys: TrustedKeys;
++  /** نسخه‌ای که ابر اعلام کرده؛ اگر داده شود باید دقیقاً با نسخه‌ی امضاشده برابر باشد */
++  expectVersion?: string;
++  /** نسخه‌ی نصب‌شده؛ اگر داده شود فقط ارتقای «اکیداً جدیدتر» پذیرفته می‌شود (ضد بازگشت به نسخه‌ی آسیب‌پذیر) */
++  currentVersion?: string;
++  /** آدرس ابر؛ اگر داده شود emzagar-config.php (در صورت وجود) باید دقیقاً قالب ثابت باشد */
++  cloudOrigin?: string;
++}
++
++function semverGt(a: string, b: string): boolean {
++  const pa = a.split(/[.-]/).map((x) => parseInt(x, 10) || 0);
++  const pb = b.split(/[.-]/).map((x) => parseInt(x, 10) || 0);
++  for (let i = 0; i < 3; i++) if ((pa[i] ?? 0) !== (pb[i] ?? 0)) return (pa[i] ?? 0) > (pb[i] ?? 0);
++  return false;
++}
++
++const SAFE_PATH = /^(?!.*(?:^|\/)\.\.?(?:\/|$))[A-Za-z0-9._-]+(?:\/[A-Za-z0-9._-]+)*$/;
++
++/**
++ * راستی‌آزمایی کامل یک بسته (نسخه‌ی مرجع Node؛ افزونه‌ی PHP همین قواعد را اجرا می‌کند):
++ * امضای Ed25519 با کلید پین‌شده، نسخه، فهرست دقیق فایل‌ها و SHA-256 تک‌تک آن‌ها.
++ * `entries`: مسیر نسبی (بدون پوشه‌ی slug) ← بایت‌های فایل.
++ */
++export function verifyRelease(entries: Record<string, Uint8Array>, opts: VerifyOptions): VerifyResult {
++  const manifestBytes = entries[RELEASE_MANIFEST];
++  const sigBytes = entries[RELEASE_SIG];
++  if (!manifestBytes || !sigBytes) return { ok: false, error: "unsigned" };
++  const m = /^emz-sig-v1 ([A-Za-z0-9._-]{3,64}) ([A-Za-z0-9+/]{86}==)\s*$/.exec(Buffer.from(sigBytes).toString("utf8"));
++  if (!m) return { ok: false, error: "bad_signature_format" };
++  const rawKey = opts.keys[m[1]];
++  if (!rawKey) return { ok: false, error: "unknown_key" };
++  let valid = false;
++  try {
++    valid = crypto.verify(null, manifestBytes, publicKeyFromRaw(rawKey), Buffer.from(m[2], "base64"));
++  } catch {
++    valid = false;
++  }
++  if (!valid) return { ok: false, error: "bad_signature" };
++
++  let manifest: ReleaseManifest;
++  try {
++    manifest = JSON.parse(Buffer.from(manifestBytes).toString("utf8")) as ReleaseManifest;
++  } catch {
++    return { ok: false, error: "bad_manifest" };
++  }
++  if (manifest.schema !== RELEASE_SCHEMA || manifest.slug !== PLUGIN_SLUG || manifest.product !== PLUGIN_SLUG) return { ok: false, error: "wrong_product" };
++  if (typeof manifest.version !== "string" || !/^\d{1,4}\.\d{1,4}\.\d{1,4}(-[0-9A-Za-z.]{1,20})?$/.test(manifest.version)) return { ok: false, error: "bad_version" };
++  if (opts.expectVersion && manifest.version !== opts.expectVersion) return { ok: false, error: "version_mismatch" };
++  if (opts.currentVersion && !semverGt(manifest.version, opts.currentVersion)) return { ok: false, error: "rollback" };
++  if (!manifest.files || typeof manifest.files !== "object" || Array.isArray(manifest.files)) return { ok: false, error: "bad_manifest" };
++
++  const expected = Object.keys(manifest.files);
++  if (expected.length === 0 || expected.length > 2000) return { ok: false, error: "bad_manifest" };
++  for (const p of expected) if (!SAFE_PATH.test(p) || !/^[0-9a-f]{64}$/.test(manifest.files[p])) return { ok: false, error: "bad_manifest" };
++
++  const actual = Object.keys(entries).filter((p) => ![RELEASE_MANIFEST, RELEASE_SIG].includes(p));
++  for (const p of actual) {
++    if (p === PLUGIN_CONFIG) {
++      if (opts.cloudOrigin) {
++        let want = "";
++        try {
++          want = renderPluginConfig(opts.cloudOrigin);
++        } catch {
++          return { ok: false, error: "config_mismatch" };
++        }
++        if (Buffer.from(entries[p]).toString("utf8") !== want) return { ok: false, error: "config_mismatch" };
++      }
++      continue;
++    }
++    if (!(p in manifest.files)) return { ok: false, error: `unexpected_file:${p}` };
++  }
++  for (const p of expected) {
++    if (!entries[p]) return { ok: false, error: `missing_file:${p}` };
++    const a = Buffer.from(sha256hex(entries[p]));
++    const b = Buffer.from(manifest.files[p]);
++    if (!crypto.timingSafeEqual(a, b)) return { ok: false, error: `hash_mismatch:${p}` };
++  }
++  return { ok: true, manifest, keyId: m[1] };
++}
++
++/** پوشه‌ی افزونه‌ی همراه ابر: آیا امضای ناشر با فایل‌های فعلی می‌خواند؟ (۶۰ ثانیه کش) */
++let bundledCache: { at: number; res: VerifyResult } | null = null;
++export function verifyBundledRelease(dir = PLUGIN_ROOT, keys?: TrustedKeys): VerifyResult {
++  const useCache = dir === PLUGIN_ROOT && !keys;
++  if (useCache && bundledCache && Date.now() - bundledCache.at < 60_000) return bundledCache.res;
++  let res: VerifyResult;
++  try {
++    const entries = collectPluginFiles(dir);
++    for (const f of [RELEASE_MANIFEST, RELEASE_SIG]) {
++      const p = path.join(dir, f);
++      if (fs.existsSync(p)) entries[f] = new Uint8Array(fs.readFileSync(p));
++    }
++    res = verifyRelease(entries, { keys: keys ?? trustedKeysFromPhp(dir) });
++  } catch {
++    res = { ok: false, error: "unreadable" };
++  }
++  if (useCache) bundledCache = { at: Date.now(), res };
++  return res;
++}
+diff --git a/src/modules/backup/actions.ts b/src/modules/backup/actions.ts
+index 2b4ac79..77e9977 100644
+--- a/src/modules/backup/actions.ts
++++ b/src/modules/backup/actions.ts
+@@ -3,7 +3,7 @@
+ import { redirect } from "next/navigation";
+ import { requirePlatformAdmin } from "@/modules/platform/admin";
+ import { rateLimit } from "@/lib/rate-limit";
+-import { runBackup, verifyLatestBackup } from "./service";
++import { provisionRecoveryKey, runBackup, verifyLatestBackup } from "./service";
+ 
+ /** بک‌آپ فوری (فقط مدیر کل پلتفرم) */
+ export async function runBackupNowAction() {
+@@ -18,3 +18,21 @@ export async function verifyBackupAction() {
+   const v = await verifyLatestBackup();
+   redirect(`/platform?backup=${!v ? "none" : v.ok ? "verified" : "corrupt"}`);
+ }
++
++export type RecoveryKeyResult = { ok: true; privateKey: string; fingerprint: string; backupOk: boolean } | { ok: false; error: string };
++
++/**
++ * ساخت (یا چرخش) کلید بازیابی بک‌آپ — فقط مدیر کل. کلید خصوصی «فقط همین یک بار» برگردانده می‌شود و ذخیره نمی‌شود؛
++ * بلافاصله یک بک‌آپ جدید با رازِ مهر‌شده گرفته می‌شود تا پوشش کامل از همین لحظه شروع شود.
++ */
++export async function generateRecoveryKeyAction(): Promise<RecoveryKeyResult> {
++  const admin = await requirePlatformAdmin();
++  if (!rateLimit(`backup-key:${admin.id}`, 5, 60 * 60_000).ok) return { ok: false, error: "تعداد درخواست‌ها زیاد است؛ بعداً تلاش کنید." };
++  try {
++    const k = provisionRecoveryKey();
++    const r = await runBackup("manual");
++    return { ok: true, privateKey: k.privateKey, fingerprint: k.fingerprint, backupOk: r.ok };
++  } catch (e) {
++    return { ok: false, error: e instanceof Error ? e.message : "ساخت کلید ناموفق بود" };
++  }
++}
+diff --git a/src/modules/backup/core.ts b/src/modules/backup/core.ts
+index 3e3b9db..80069df 100644
+--- a/src/modules/backup/core.ts
++++ b/src/modules/backup/core.ts
+@@ -9,6 +9,17 @@
+  *     files/signatures/*       تصویر امضاها
+  *     files/documents/*        PDF قراردادهای نهایی
+  *     files/attachments/*      پیوست‌های قرارداد (کارت ملی، فاکتور …)
++ *     files/kyc/*              مدارک احراز هویت (KYC) — همان فایل‌های «رمزنگاری‌شده» با AES-256-GCM (CR-04)
++ *     secrets.sealed.json      SESSION_SECRET (کلید رمزگشایی KYC و رازهای دیتابیس) «مهر و موم‌شده» با کلید عمومی بازیابی (CR-04)
++ *
++ * CR-04 — بک‌آپ ناقص:
++ *   «مدارک KYC و SESSION_SECRET در بک‌آپ نیستند و نسخه‌ها روی همان volume داده‌ی اصلی ذخیره می‌شوند.»
++ *   ۱. KYC اکنون در بک‌آپ است؛ بدون SESSION_SECRET بی‌مصرف است، پس راز هم همراه بک‌آپ می‌آید ولی «هرگز به‌صورت متن ساده»:
++ *      با رمزنگاری ترکیبی (X25519 + HKDF-SHA256 + AES-256-GCM، «sealed box») فقط برای «کلید بازیابی» مالک مهر می‌شود.
++ *      کلید خصوصی بازیابی هرگز روی سرور نمی‌ماند؛ پس دزدیدن بک‌آپ (یا حتی هک سرور) راز را فاش نمی‌کند، و
++ *      با از دست رفتن کامل سرور، بک‌آپ + کلید بازیابی برای بازگشت کامل کافی است.
++ *   ۲. نسخه‌ها می‌توانند هم‌زمان به مقصدهای آینه (mirrorDirs: دیسک/NFS/mount دیگر) کپی و در مقصد دوباره راستی‌آزمایی شوند؛
++ *      و اگر هیچ نسخه‌ای خارج از volume داده نباشد، هشدار «backups-inside-data-volume» ثبت می‌شود.
+  */
+ import crypto from "node:crypto";
+ import fs from "node:fs";
+@@ -21,7 +32,9 @@ import { from as copyFrom, to as copyTo } from "pg-copy-streams";
+ 
+ export const BACKUP_PREFIX = "backup-";
+ const NAME_RE = /^backup-\d{8}-\d{6}$/;
+-const FILE_DIRS = ["signatures", "documents", "attachments"] as const;
++const FILE_DIRS = ["signatures", "documents", "attachments", "kyc"] as const;
++export const SECRETS_FILE = "secrets.sealed.json";
++const SEAL_ALG = "x25519-hkdf-sha256-aes256gcm-v1";
+ 
+ export interface BackupTableInfo {
+   name: string;
+@@ -36,11 +49,31 @@ export interface BackupFileInfo {
+   sha256: string;
+   bytes: number;
+ }
++export interface BackupSecretsInfo {
++  file: string;
++  sha256: string;
++  bytes: number;
++  alg: string;
++  /** اثر انگشت کلید عمومی گیرنده (برای اینکه مالک بداند با کدام کلید بازیابی مهر شده) */
++  recipient: string;
++}
+ export interface BackupManifest {
+   version: 1;
+   createdAt: string;
+   tables: BackupTableInfo[];
+   files: BackupFileInfo[];
++  /** رازهای مهر‌شده (اختیاری؛ بک‌آپ‌های قدیمی ندارند) */
++  secrets?: BackupSecretsInfo;
++  /** هشدارهای قابل‌نمایش: secret-not-sealed · backups-inside-data-volume · mirror-failed */
++  warnings?: string[];
++}
++
++export interface MirrorResult {
++  dir: string;
++  ok: boolean;
++  error?: string;
++  /** حذف‌شده‌ها به‌خاطر سیاست نگهداری در مقصد */
++  removed?: number;
+ }
+ 
+ export interface BackupOptions {
+@@ -49,6 +82,120 @@ export interface BackupOptions {
+   backupDir: string;
+   /** چند بک‌آپ آخر نگه داشته شود (پیش‌فرض ۱۴) */
+   keep?: number;
++  /** SESSION_SECRET فعلی؛ فقط وقتی همراه recoveryPublicKey باشد (مهر‌شده) در بک‌آپ قرار می‌گیرد */
++  sessionSecret?: string;
++  /** کلید عمومی بازیابی (خروجی generateRecoveryKeyPair().publicKey) */
++  recoveryPublicKey?: string;
++  /** مقصدهای آینه‌ی بک‌آپ (مسیرهای روی دیسک/mount دیگر) */
++  mirrorDirs?: string[];
++}
++
++
++/* ───────── کلید بازیابی و مهر و موم رازها (sealed box) ───────── */
++const SPKI_X25519 = Buffer.from("302a300506032b656e032100", "hex");
++const PKCS8_X25519 = Buffer.from("302e020100300506032b656e04220420", "hex");
++const PRIV_PREFIX = "emz-rk1-";
++
++const pubObj = (raw: Buffer) => crypto.createPublicKey({ key: Buffer.concat([SPKI_X25519, raw]), format: "der", type: "spki" });
++const privObj = (raw: Buffer) => crypto.createPrivateKey({ key: Buffer.concat([PKCS8_X25519, raw]), format: "der", type: "pkcs8" });
++
++function parsePublic(b64: string): Buffer {
++  const raw = Buffer.from(b64.trim(), "base64url");
++  if (raw.length !== 32) throw new Error("کلید عمومی بازیابی نامعتبر است");
++  return raw;
++}
++function parsePrivate(text: string): Buffer {
++  const t = text.trim();
++  const raw = Buffer.from(t.startsWith(PRIV_PREFIX) ? t.slice(PRIV_PREFIX.length) : t, "base64url");
++  if (raw.length !== 32) throw new Error("کلید بازیابی نامعتبر است");
++  return raw;
++}
++
++/** اثر انگشت کوتاه و قابل‌خواندن کلید عمومی: «A1B2-C3D4-E5F6-0718» */
++export function recoveryFingerprint(publicKey: string): string {
++  const h = crypto.createHash("sha256").update(parsePublic(publicKey)).digest("hex").slice(0, 16).toUpperCase();
++  return h.match(/.{4}/g)!.join("-");
++}
++
++/** جفت‌کلید بازیابی؛ publicKey روی سرور می‌ماند، privateKey فقط یک بار به مالک نشان داده می‌شود */
++export function generateRecoveryKeyPair(): { publicKey: string; privateKey: string } {
++  const { publicKey, privateKey } = crypto.generateKeyPairSync("x25519");
++  const pub = (publicKey.export({ format: "der", type: "spki" }) as Buffer).subarray(-32);
++  const priv = (privateKey.export({ format: "der", type: "pkcs8" }) as Buffer).subarray(-32);
++  return { publicKey: Buffer.from(pub).toString("base64url"), privateKey: PRIV_PREFIX + Buffer.from(priv).toString("base64url") };
++}
++
++function sealKey(shared: Buffer, epk: Buffer, rpk: Buffer): Buffer {
++  return Buffer.from(crypto.hkdfSync("sha256", shared, Buffer.concat([epk, rpk]), "emz-backup-secrets-v1", 32));
++}
++
++/** مهر و موم: فقط دارنده‌ی کلید خصوصی بازیابی می‌تواند باز کند */
++export function sealSecrets(payload: { sessionSecret: string }, recoveryPublicKey: string): string {
++  const rpk = parsePublic(recoveryPublicKey);
++  const eph = crypto.generateKeyPairSync("x25519");
++  const epk = Buffer.from((eph.publicKey.export({ format: "der", type: "spki" }) as Buffer).subarray(-32));
++  const key = sealKey(crypto.diffieHellman({ privateKey: eph.privateKey, publicKey: pubObj(rpk) }), epk, rpk);
++  const iv = crypto.randomBytes(12);
++  const c = crypto.createCipheriv("aes-256-gcm", key, iv);
++  c.setAAD(Buffer.from("emz-backup-secrets-v1"));
++  const ct = Buffer.concat([c.update(JSON.stringify({ v: 1, sessionSecret: payload.sessionSecret, sealedAt: new Date().toISOString() }), "utf8"), c.final()]);
++  return JSON.stringify({ v: 1, alg: SEAL_ALG, epk: epk.toString("base64url"), iv: iv.toString("base64url"), tag: c.getAuthTag().toString("base64url"), ct: ct.toString("base64url") }, null, 2);
++}
++
++export function openSecrets(sealedJson: string, recoveryPrivateKey: string): { sessionSecret: string } {
++  let obj: { alg: string; epk: string; iv: string; tag: string; ct: string };
++  try {
++    obj = JSON.parse(sealedJson);
++  } catch {
++    throw new Error("فایل رازهای مهر‌شده خراب است");
++  }
++  if (obj.alg !== SEAL_ALG) throw new Error("الگوریتم مهر و موم پشتیبانی نمی‌شود");
++  try {
++    const priv = parsePrivate(recoveryPrivateKey);
++    const epk = Buffer.from(obj.epk, "base64url");
++    const rpk = Buffer.from((crypto.createPublicKey(privObj(priv)).export({ format: "der", type: "spki" }) as Buffer).subarray(-32));
++    const key = sealKey(crypto.diffieHellman({ privateKey: privObj(priv), publicKey: pubObj(epk) }), epk, rpk);
++    const d = crypto.createDecipheriv("aes-256-gcm", key, Buffer.from(obj.iv, "base64url"));
++    d.setAAD(Buffer.from("emz-backup-secrets-v1"));
++    d.setAuthTag(Buffer.from(obj.tag, "base64url"));
++    const plain = JSON.parse(Buffer.concat([d.update(Buffer.from(obj.ct, "base64url")), d.final()]).toString("utf8")) as { sessionSecret?: string };
++    if (!plain.sessionSecret) throw new Error("empty");
++    return { sessionSecret: plain.sessionSecret };
++  } catch {
++    throw new Error("کلید بازیابی اشتباه است (یا فایل دستکاری شده است)");
++  }
++}
++
++/** باز کردن رازِ مهر‌شده‌ی یک پوشه‌ی بک‌آپ (برای «تمرین بازیابی» و restore) */
++export async function openBackupSecrets(backupDir: string, recoveryPrivateKey: string): Promise<{ sessionSecret: string } | null> {
++  let manifest: BackupManifest;
++  try {
++    manifest = JSON.parse(await fsp.readFile(path.join(backupDir, "manifest.json"), "utf8")) as BackupManifest;
++  } catch {
++    throw new Error("manifest.json خوانده نشد");
++  }
++  if (!manifest.secrets) return null;
++  return openSecrets(await fsp.readFile(path.join(backupDir, manifest.secrets.file), "utf8"), recoveryPrivateKey);
++}
++
++/** آیا مسیر `inner` داخل (یا برابر) `outer` است؟ (با realpath؛ پوشه‌ی ناموجود ← نزدیک‌ترین والد موجود) */
++export function isInside(inner: string, outer: string): boolean {
++  const real = (p: string) => {
++    let cur = path.resolve(p);
++    const tail: string[] = [];
++    for (;;) {
++      try {
++        return path.join(fs.realpathSync(cur), ...tail.reverse());
++      } catch {
++        const up = path.dirname(cur);
++        if (up === cur) return path.resolve(p);
++        tail.push(path.basename(cur));
++        cur = up;
++      }
++    }
++  };
++  const rel = path.relative(real(outer), real(inner));
++  return rel === "" || (!rel.startsWith("..") && !path.isAbsolute(rel));
+ }
+ 
+ const q = (id: string) => `"${id.replace(/"/g, '""')}"`;
+@@ -131,7 +278,16 @@ export async function listBackups(backupDir: string): Promise<{ name: string; di
+ }
+ 
+ /** ساخت یک بک‌آپ کامل (دیتابیس + امضاها + PDFها) و حذف بک‌آپ‌های قدیمی */
+-export async function createBackup(opts: BackupOptions): Promise<{ dir: string; manifest: BackupManifest; removed: string[] }> {
++export interface BackupResultInfo {
++  dir: string;
++  manifest: BackupManifest;
++  removed: string[];
++  mirrors: MirrorResult[];
++  /** هشدارهای «نهایی» (شامل شکست آینه‌ها) برای نمایش به مدیر */
++  warnings: string[];
++}
++
++export async function createBackup(opts: BackupOptions): Promise<BackupResultInfo> {
+   await fsp.mkdir(opts.backupDir, { recursive: true, mode: 0o700 });
+   const release = await acquireLock(opts.backupDir);
+   const dir = path.join(opts.backupDir, `${BACKUP_PREFIX}${stamp()}`);
+@@ -172,7 +328,25 @@ export async function createBackup(opts: BackupOptions): Promise<{ dir: string;
+     const files: BackupFileInfo[] = [];
+     for (const d of FILE_DIRS) await copyDirFlat(path.join(opts.storageDir, d), path.join(dir, "files", d), `files/${d}`, files);
+ 
+-    const manifest: BackupManifest = { version: 1, createdAt: new Date().toISOString(), tables, files };
++    // رازها: فقط «مهر‌شده» (هرگز متن ساده) و فقط وقتی کلید عمومی بازیابی تنظیم شده باشد
++    const warnings: string[] = [];
++    let secrets: BackupSecretsInfo | undefined;
++    if (opts.sessionSecret) {
++      if (opts.recoveryPublicKey) {
++        const target = path.join(dir, SECRETS_FILE);
++        await fsp.writeFile(target, sealSecrets({ sessionSecret: opts.sessionSecret }, opts.recoveryPublicKey), { mode: 0o600 });
++        const { sha256, bytes } = await hashFile(target);
++        secrets = { file: SECRETS_FILE, sha256, bytes, alg: SEAL_ALG, recipient: recoveryFingerprint(opts.recoveryPublicKey) };
++      } else {
++        warnings.push("secret-not-sealed");
++      }
++    }
++    const mirrorRoots = [...new Set((opts.mirrorDirs ?? []).map((d) => d.trim()).filter(Boolean).map((d) => path.resolve(d)))];
++    const offVolume = (d: string) => !isInside(d, opts.storageDir);
++    const needsOffVolume = !offVolume(opts.backupDir);
++    if (needsOffVolume && !mirrorRoots.some(offVolume)) warnings.push("backups-inside-data-volume");
++
++    const manifest: BackupManifest = { version: 1, createdAt: new Date().toISOString(), tables, files, ...(secrets ? { secrets } : {}), ...(warnings.length ? { warnings: [...warnings] } : {}) };
+     // manifest «آخر» نوشته می‌شود؛ نبودنش یعنی بک‌آپ ناتمام است
+     const tmp = path.join(dir, "manifest.json.tmp");
+     await fsp.writeFile(tmp, JSON.stringify(manifest, null, 2), { mode: 0o600 });
+@@ -181,8 +355,16 @@ export async function createBackup(opts: BackupOptions): Promise<{ dir: string;
+     const v = await verifyBackup(dir);
+     if (!v.ok) throw new Error(`بررسی صحت بک‌آپ ناموفق بود: ${v.problems.slice(0, 3).join("؛ ")}`);
+ 
+-    const removed = await applyRetention(opts.backupDir, Math.max(1, opts.keep ?? 14), path.basename(dir));
+-    return { dir, manifest, removed };
++    const keep = Math.max(1, opts.keep ?? 14);
++    const removed = await applyRetention(opts.backupDir, keep, path.basename(dir));
++
++    // آینه‌ها: شکست آینه بک‌آپ اصلی را خراب نمی‌کند ولی «هشدار» می‌شود
++    const mirrors: MirrorResult[] = [];
++    for (const root of mirrorRoots) mirrors.push(await mirrorBackup(dir, root, opts.backupDir, keep));
++    const final = [...warnings];
++    if (mirrors.some((m) => !m.ok)) final.push("mirror-failed");
++    if (needsOffVolume && !mirrors.some((m) => m.ok && offVolume(m.dir)) && !final.includes("backups-inside-data-volume")) final.push("backups-inside-data-volume");
++    return { dir, manifest, removed, mirrors, warnings: final };
+   } catch (e) {
+     await fsp.rm(dir, { recursive: true, force: true }).catch(() => undefined); // بک‌آپ ناتمام باقی نمی‌ماند
+     throw e;
+@@ -192,6 +374,37 @@ export async function createBackup(opts: BackupOptions): Promise<{ dir: string;
+   }
+ }
+ 
++async function chmodTree(root: string): Promise<void> {
++  await fsp.chmod(root, 0o700);
++  for (const e of await fsp.readdir(root, { withFileTypes: true })) {
++    const p = path.join(root, e.name);
++    if (e.isDirectory()) await chmodTree(p);
++    else await fsp.chmod(p, 0o600);
++  }
++}
++
++/** کپی یک بک‌آپ کامل به مقصد آینه، راستی‌آزمایی «در مقصد»، سپس جابه‌جایی اتمی و اعمال سیاست نگهداری */
++async function mirrorBackup(dir: string, root: string, primaryRoot: string, keep: number): Promise<MirrorResult> {
++  const name = path.basename(dir);
++  const tmp = path.join(root, `.${name}.partial`);
++  try {
++    if (path.resolve(root) === path.resolve(primaryRoot) || isInside(root, dir)) throw new Error("مقصد آینه با مقصد اصلی یکی است");
++    await fsp.mkdir(root, { recursive: true, mode: 0o700 });
++    await fsp.rm(tmp, { recursive: true, force: true });
++    await fsp.cp(dir, tmp, { recursive: true });
++    await chmodTree(tmp);
++    const v = await verifyBackup(tmp);
++    if (!v.ok) throw new Error(`نسخه‌ی آینه سالم نیست: ${v.problems.slice(0, 2).join("؛ ")}`);
++    await fsp.rm(path.join(root, name), { recursive: true, force: true });
++    await fsp.rename(tmp, path.join(root, name));
++    const removed = await applyRetention(root, keep, name);
++    return { dir: root, ok: true, removed: removed.length };
++  } catch (e) {
++    await fsp.rm(tmp, { recursive: true, force: true }).catch(() => undefined);
++    return { dir: root, ok: false, error: e instanceof Error ? e.message.slice(0, 200) : "خطای ناشناخته" };
++  }
++}
++
+ async function applyRetention(backupDir: string, keep: number, current: string): Promise<string[]> {
+   const all = await listBackups(backupDir);
+   const removed: string[] = [];
+@@ -218,7 +431,11 @@ export async function verifyBackup(dir: string): Promise<{ ok: boolean; problems
+     return { ok: false, problems: ["manifest.json خوانده نشد (بک‌آپ ناتمام یا خراب است)"] };
+   }
+   if (manifest.version !== 1) problems.push("نسخه‌ی بک‌آپ پشتیبانی نمی‌شود");
+-  const entries = [...manifest.tables.map((t) => ({ p: t.file, sha: t.sha256 })), ...manifest.files.map((f) => ({ p: f.path, sha: f.sha256 }))];
++  const entries = [
++    ...manifest.tables.map((t) => ({ p: t.file, sha: t.sha256 })),
++    ...manifest.files.map((f) => ({ p: f.path, sha: f.sha256 })),
++    ...(manifest.secrets ? [{ p: manifest.secrets.file, sha: manifest.secrets.sha256 }] : []),
++  ];
+   for (const e of entries) {
+     const abs = path.join(dir, e.p);
+     if (!abs.startsWith(path.resolve(dir) + path.sep) && !abs.startsWith(dir + path.sep)) {
+@@ -242,13 +459,38 @@ export interface RestoreOptions {
+   storageDir: string;
+   /** دستورهای ساخت جدول (SCHEMA_CREATE) تا روی دیتابیس خالی هم کار کند */
+   schemaStatements: string[];
++  /** کلید خصوصی بازیابی (emz-rk1-…): برای باز کردن SESSION_SECRET مهر‌شده؛ اگر بک‌آپ راز دارد و این نباشد، بازیابی شروع نمی‌شود */
++  recoveryKey?: string;
++  /** عمداً بدون راز بازیابی شود (مدارک KYC و رازهای رمزنگاری‌شده‌ی دیتابیس خوانا نخواهند بود) */
++  skipSecrets?: boolean;
++}
++
++/** SESSION_SECRET بازیابی‌شده را در storage/config.json می‌نویسد (اتمی، فقط مالک) */
++async function writeSessionSecret(storageDir: string, secret: string): Promise<void> {
++  const file = path.join(storageDir, "config.json");
++  let cur: Record<string, unknown> = {};
++  try {
++    cur = JSON.parse(await fsp.readFile(file, "utf8")) as Record<string, unknown>;
++  } catch {
++    /* هنوز نیست */
++  }
++  await fsp.mkdir(storageDir, { recursive: true, mode: 0o700 });
++  const tmp = `${file}.${process.pid}.tmp`;
++  await fsp.writeFile(tmp, JSON.stringify({ ...cur, sessionSecret: secret }, null, 2), { mode: 0o600 });
++  await fsp.rename(tmp, file);
+ }
+ 
+ /** بازیابی کامل: محتوای فعلی جدول‌ها با بک‌آپ جایگزین می‌شود (در یک تراکنش؛ اگر خطا شد هیچ تغییری اعمال نمی‌شود) */
+-export async function restoreBackup(opts: RestoreOptions): Promise<{ tables: number; rows: number; files: number }> {
++export async function restoreBackup(opts: RestoreOptions): Promise<{ tables: number; rows: number; files: number; secretsRestored: boolean }> {
+   const check = await verifyBackup(opts.backup);
+   if (!check.ok || !check.manifest) throw new Error(`بک‌آپ معتبر نیست: ${check.problems.join("؛ ")}`);
+   const manifest = check.manifest;
++  // راز مهر‌شده «پیش از هر تغییر» باز می‌شود: کلید غلط/نبود کلید ← هیچ چیز دست نمی‌خورد
++  let restoredSecret: string | null = null;
++  if (manifest.secrets && !opts.skipSecrets) {
++    if (!opts.recoveryKey) throw new Error(`این بک‌آپ شامل رازهای مهر‌شده (SESSION_SECRET) است؛ «کلید بازیابی» (emz-rk1-…) لازم است. اثر انگشت کلید: ${manifest.secrets.recipient}`);
++    restoredSecret = (await openBackupSecrets(opts.backup, opts.recoveryKey))?.sessionSecret ?? null;
++  }
+   const pool = new Pool({ connectionString: opts.databaseUrl, max: 1, connectionTimeoutMillis: 10_000 });
+   pool.on("error", () => undefined);
+   const client = await pool.connect();
+@@ -290,5 +532,6 @@ export async function restoreBackup(opts: RestoreOptions): Promise<{ tables: num
+     await fsp.chmod(to, 0o600);
+     files++;
+   }
+-  return { tables: manifest.tables.length, rows, files };
++  if (restoredSecret) await writeSessionSecret(opts.storageDir, restoredSecret);
++  return { tables: manifest.tables.length, rows, files, secretsRestored: !!restoredSecret };
+ }
+diff --git a/src/modules/backup/service.ts b/src/modules/backup/service.ts
+index 1806720..bca9220 100644
+--- a/src/modules/backup/service.ts
++++ b/src/modules/backup/service.ts
+@@ -1,7 +1,57 @@
++import fs from "node:fs";
++import path from "node:path";
+ import { STORAGE_DIR, getConfig } from "@/lib/config";
+ import { backupsDir } from "@/lib/storage-paths";
+ import { getGlobalSetting, saveGlobalSetting } from "@/modules/settings/service";
+-import { createBackup, listBackups, verifyBackup, type BackupManifest } from "./core";
++import { createBackup, generateRecoveryKeyPair, isInside, listBackups, recoveryFingerprint, verifyBackup, type BackupManifest } from "./core";
++
++/* ───────── کلید بازیابی (CR-04) ─────────
++ * کلید «عمومی» روی سرور (storage/backup-recovery.pub یا BACKUP_RECOVERY_PUBLIC_KEY) می‌ماند و فقط برای «مهر کردن»
++ * SESSION_SECRET در بک‌آپ است. کلید «خصوصی» فقط یک بار هنگام ساخت به مدیر کل نشان داده می‌شود و هیچ‌جا ذخیره نمی‌شود.
++ */
++const recoveryPubFile = () => path.join(STORAGE_DIR, "backup-recovery.pub");
++
++export function recoveryPublicKey(): string {
++  const candidates = [process.env.BACKUP_RECOVERY_PUBLIC_KEY ?? "", (() => {
++    try {
++      return fs.readFileSync(recoveryPubFile(), "utf8");
++    } catch {
++      return "";
++    }
++  })()];
++  for (const c of candidates) {
++    const k = c.trim();
++    if (!k) continue;
++    try {
++      recoveryFingerprint(k); // اعتبارسنجی
++      return k;
++    } catch {
++      /* نامعتبر ← نادیده */
++    }
++  }
++  return "";
++}
++
++export function recoveryStatus(): { configured: boolean; fingerprint: string; fromEnv: boolean } {
++  const k = recoveryPublicKey();
++  return { configured: !!k, fingerprint: k ? recoveryFingerprint(k) : "", fromEnv: !!process.env.BACKUP_RECOVERY_PUBLIC_KEY?.trim() };
++}
++
++/** ساخت (یا چرخش) کلید بازیابی؛ کلید خصوصی فقط در خروجی همین تابع وجود دارد */
++export function provisionRecoveryKey(): { privateKey: string; fingerprint: string } {
++  if (process.env.BACKUP_RECOVERY_PUBLIC_KEY?.trim()) throw new Error("کلید بازیابی از طریق BACKUP_RECOVERY_PUBLIC_KEY مدیریت می‌شود");
++  const pair = generateRecoveryKeyPair();
++  fs.mkdirSync(STORAGE_DIR, { recursive: true });
++  fs.writeFileSync(recoveryPubFile(), `${pair.publicKey}\n`, { mode: 0o600 });
++  return { privateKey: pair.privateKey, fingerprint: recoveryFingerprint(pair.publicKey) };
++}
++
++/** مقصدهای آینه‌ی بک‌آپ (BACKUP_MIRROR_DIRS: چند مسیر جداشده با ویرگول؛ دیسک/NFS/mount دیگر) */
++export const mirrorDirs = (): string[] =>
++  (process.env.BACKUP_MIRROR_DIRS ?? "")
++    .split(",")
++    .map((d) => d.trim())
++    .filter(Boolean);
+ 
+ /** بک‌آپ خودکار پیش‌فرض روشن است (BACKUP_ENABLED=0 خاموشش می‌کند)؛ هر ۲۴ ساعت و نگهداری ۱۴ نسخه */
+ export const backupConfig = () => ({
+@@ -11,7 +61,9 @@ export const backupConfig = () => ({
+   dir: backupsDir(),
+ });
+ 
+-export type BackupResult = { ok: true; name: string; tables: number; rows: number; files: number; removed: number } | { ok: false; error: string };
++export type BackupResult =
++  | { ok: true; name: string; tables: number; rows: number; files: number; removed: number; warnings: string[]; mirrorsOk: number; mirrorsFailed: number }
++  | { ok: false; error: string };
+ 
+ function summarize(m: BackupManifest) {
+   return { tables: m.tables.length, rows: m.tables.reduce((a, t) => a + t.rows, 0), files: m.files.length };
+@@ -22,10 +74,23 @@ export async function runBackup(trigger: "scheduler" | "manual"): Promise<Backup
+   const databaseUrl = getConfig().databaseUrl;
+   if (!databaseUrl) return { ok: false, error: "دیتابیس پیکربندی نشده است" };
+   try {
+-    const r = await createBackup({ databaseUrl, storageDir: STORAGE_DIR, backupDir: cfg.dir, keep: cfg.keep });
++    const r = await createBackup({
++      databaseUrl,
++      storageDir: STORAGE_DIR,
++      backupDir: cfg.dir,
++      keep: cfg.keep,
++      sessionSecret: getConfig().sessionSecret || undefined,
++      recoveryPublicKey: recoveryPublicKey() || undefined,
++      mirrorDirs: mirrorDirs(),
++    });
+     const name = r.dir.split(/[\\/]/).pop() ?? "";
+-    await saveGlobalSetting("backup_last", JSON.stringify({ at: new Date().toISOString(), ok: true, name, trigger })).catch(() => undefined);
+-    return { ok: true, name, ...summarize(r.manifest), removed: r.removed.length };
++    const mirrorsOk = r.mirrors.filter((m) => m.ok).length;
++    const mirrorsFailed = r.mirrors.length - mirrorsOk;
++    await saveGlobalSetting(
++      "backup_last",
++      JSON.stringify({ at: new Date().toISOString(), ok: true, name, trigger, warnings: r.warnings, mirrorsOk, mirrorsFailed, mirrorErrors: r.mirrors.filter((m) => !m.ok).map((m) => `${m.dir}: ${m.error}`).slice(0, 3) }),
++    ).catch(() => undefined);
++    return { ok: true, name, ...summarize(r.manifest), removed: r.removed.length, warnings: r.warnings, mirrorsOk, mirrorsFailed };
+   } catch (e) {
+     const error = e instanceof Error ? e.message.slice(0, 300) : "خطای ناشناخته";
+     console.error("[backup]", error);
+@@ -57,13 +122,22 @@ export async function runScheduledBackupIfDue(): Promise<void> {
+ export async function backupOverview() {
+   const cfg = backupConfig();
+   const list = await listBackups(cfg.dir);
+-  let last: { at: string; ok: boolean; error?: string; trigger?: string } | null = null;
++  let last: { at: string; ok: boolean; error?: string; trigger?: string; warnings?: string[]; mirrorsOk?: number; mirrorsFailed?: number; mirrorErrors?: string[] } | null = null;
+   try {
+     last = JSON.parse(await getGlobalSetting("backup_last"));
+   } catch {
+     last = null;
+   }
+-  return { cfg, list: list.slice(0, 10), last };
++  const mirrors = mirrorDirs();
++  return {
++    cfg,
++    list: list.slice(0, 10),
++    last,
++    recovery: recoveryStatus(),
++    mirrorCount: mirrors.length,
++    /** بک‌آپ‌ها روی همان volume داده‌ی اصلی‌اند (و هیچ آینه‌ی بیرونی تنظیم نشده) */
++    insideDataVolume: isInside(cfg.dir, STORAGE_DIR) && !mirrors.some((m) => !isInside(m, STORAGE_DIR)),
++  };
+ }
+ 
+ export async function verifyLatestBackup() {
+diff --git a/src/modules/install/actions.ts b/src/modules/install/actions.ts
+index 00fff75..9692dbd 100644
+--- a/src/modules/install/actions.ts
++++ b/src/modules/install/actions.ts
+@@ -11,9 +11,12 @@ import {
+   createFirstAdmin,
+   describeDbError,
+   finalizeInstall,
++  getInstallState,
+   isInstalled,
++  keyAttemptsLocked,
+   keyMatches,
+   persistConfig,
++  recordKeyFailure,
+   testDatabase,
+   validateAccount,
+   type AccountInput,
+@@ -22,12 +25,26 @@ import {
+ 
+ export type StepResult = { ok: boolean; error?: string; note?: string };
+ 
+-/** هر مرحله: اگر سامانه نصب شده باشد، کلید نصب نادرست باشد یا درخواست‌ها بیش از حد باشد، رد می‌شود */
++/**
++ * هر مرحله باید از این نگهبان بگذرد (CR-03):
++ *  ۱. سامانه نصب‌شده نباشد؛ و اگر وضعیت دیتابیس «قابل‌خواندن نیست» (قطعی موقت)، نصب بسته می‌ماند (fail-closed)
++ *     تا با قطع دیتابیس نتوان آدرس دیتابیس را بازنویسی یا مدیر جدید ساخت.
++ *  ۲. نرخ درخواست از یک IP محدود باشد.
++ *  ۳. کلید نصب (INSTALL_KEY یا کلید تصادفی storage/install-key.txt) درست باشد؛ تلاش‌های ناموفق به‌صورت سراسری شمرده می‌شود.
++ */
+ async function guard(installKey: string | undefined): Promise<string | null> {
+-  if (await isInstalled()) return "سامانه قبلاً نصب شده است. برای ورود به بخش مدیریت به صفحه‌ی ورود بروید.";
++  const state = await getInstallState();
++  if (state === "installed") return "سامانه قبلاً نصب شده است. برای ورود به بخش مدیریت به صفحه‌ی ورود بروید.";
++  if (state === "unknown") {
++    return "اتصال به دیتابیس پیکربندی‌شده برقرار نیست و وضعیت نصب قابل تأیید نیست؛ برای امنیت، نصب‌کننده بسته است. دیتابیس را راه‌اندازی کنید و دوباره امتحان کنید (برای شروع از صفر، فایل storage/config.json را از روی سرور حذف کنید).";
++  }
+   const { ip } = await getRequestInfo();
+   if (!rateLimit(`install:${ip}`, 60, 15 * 60_000).ok) return "تعداد تلاش‌ها زیاد بود. چند دقیقه بعد دوباره امتحان کنید.";
+-  if (!keyMatches(installKey)) return "کلید نصب نادرست است (مقدار INSTALL_KEY که تنظیم کرده‌اید).";
++  if (keyAttemptsLocked()) return "به‌دلیل تلاش‌های ناموفق زیاد، نصب‌کننده برای ۱۵ دقیقه قفل شد.";
++  if (!keyMatches(installKey)) {
++    recordKeyFailure();
++    return "کلید نصب نادرست است. کلید را در فایل storage/install-key.txt روی سرور (یا لاگ سرور، یا مقدار INSTALL_KEY) پیدا کنید.";
++  }
+   return null;
+ }
+ 
+diff --git a/src/modules/install/service.ts b/src/modules/install/service.ts
+index 47bc1b0..c545af9 100644
+--- a/src/modules/install/service.ts
++++ b/src/modules/install/service.ts
+@@ -1,7 +1,9 @@
+ import crypto from "node:crypto";
++import fs from "node:fs";
++import path from "node:path";
+ import { Pool } from "pg";
+ import { sql } from "drizzle-orm";
+-import { getConfig, hasInstallLock, storageWritable, writeConfig, writeInstallLock } from "@/lib/config";
++import { getConfig, hasInstallLock, STORAGE_DIR, storageWritable, writeConfig, writeInstallLock } from "@/lib/config";
+ import { db, getPool, withTransaction } from "@/db";
+ import { users } from "@/db/schema";
+ import { hashPassword } from "@/lib/password";
+@@ -13,11 +15,35 @@ import { SCHEMA_ALTER, SCHEMA_CREATE } from "./schema-sql";
+ /* ───────── وضعیت نصب ───────── */
+ let installedMemo = false;
+ 
+-/** نصب‌شده = قفل نصب وجود دارد، یا دست‌کم یک کاربر در دیتابیس هست (سازگار با نصب‌های قدیمی) */
+-export async function isInstalled(): Promise<boolean> {
+-  if (installedMemo) return true;
+-  if (hasInstallLock()) return (installedMemo = true);
+-  if (!getConfig().databaseUrl) return false;
++/**
++ * وضعیت سه‌حالته (CR-03):
++ *  - installed: قفل نصب هست یا دست‌کم یک کاربر در دیتابیس است.
++ *  - fresh:     «به‌اثبات رسیده» که هنوز نصب نشده (آدرس دیتابیسی نیست، یا دیتابیس وصل است و جدول/کاربری ندارد).
++ *  - unknown:   دیتابیس پیکربندی شده ولی نمی‌توان وضعیتش را خواند (قطعی، خطای دسترسی، …).
++ *
++ * قبلاً «unknown» هم مثل «fresh» رفتار می‌شد؛ یعنی با قطع موقت دیتابیس (و نبود lock-file) هر بازدیدکننده می‌توانست
++ * نصب‌کننده را باز کند و حتی آدرس دیتابیس را بازنویسی کند. اکنون «نمی‌دانم» = «بسته» (fail-closed).
++ */
++export type InstallState = "installed" | "fresh" | "unknown";
++
++/** خطای «جدول وجود ندارد» (42P01) یعنی دیتابیس وصل است ولی هنوز نصب نشده؛ drizzle خطای pg را در cause می‌پیچد */
++function isUndefinedTable(e: unknown): boolean {
++  let cur: unknown = e;
++  for (let i = 0; i < 4 && cur; i++) {
++    if ((cur as { code?: string }).code === "42P01") return true;
++    cur = (cur as { cause?: unknown }).cause;
++  }
++  return false;
++}
++
++export async function getInstallState(): Promise<InstallState> {
++  if (installedMemo) return "installed";
++  if (hasInstallLock()) {
++    installedMemo = true;
++    discardInstallKey();
++    return "installed";
++  }
++  if (!getConfig().databaseUrl) return "fresh";
+   try {
+     const [row] = await db.select({ n: sql<number>`count(*)::int` }).from(users);
+     if (row && row.n > 0) {
+@@ -26,12 +52,115 @@ export async function isInstalled(): Promise<boolean> {
+       } catch {
+         /* حتی اگر قفل نوشته نشد، نصب‌شده است */
+       }
+-      return (installedMemo = true);
++      installedMemo = true;
++      discardInstallKey();
++      return "installed";
++    }
++    return "fresh";
++  } catch (e) {
++    return isUndefinedTable(e) ? "fresh" : "unknown";
++  }
++}
++
++/** نصب‌شده = قفل نصب وجود دارد، یا دست‌کم یک کاربر در دیتابیس هست (سازگار با نصب‌های قدیمی) */
++export async function isInstalled(): Promise<boolean> {
++  return (await getInstallState()) === "installed";
++}
++
++/* ───────── کلید نصب (CR-03) ─────────
++ * قبلاً اگر INSTALL_KEY تنظیم نمی‌شد، «اولین بازدیدکننده‌ی اینترنت» مدیر کل می‌شد (مثل نصب‌کننده‌ی وردپرس، ولی با
++ * دسترسی کامل به پلتفرم). اکنون نصب‌کننده همیشه «اثبات مالکیت سرور» می‌خواهد:
++ *   • INSTALL_KEY در محیط (Docker/VPS) ← همان کلید.
++ *   • وگرنه یک کلید تصادفی ۱۴۴ بیتی در storage/install-key.txt (مجوز 0600) ساخته و در لاگ سرور چاپ می‌شود؛
++ *     فقط کسی که به فایل‌های هاست یا لاگ سرور دسترسی دارد (یعنی مالک) آن را می‌بیند. پس از پایان نصب حذف می‌شود.
++ *   • INSTALL_OPEN=1: انصراف صریح و آگاهانه (فقط برای CI/آزمون محلی).
++ */
++const KEY_FILE = path.join(STORAGE_DIR, "install-key.txt");
++let memKey: string | null = null;
++let openWarned = false;
++
++export type InstallKeySource = "env" | "file" | "open";
++export function installKeySource(): InstallKeySource {
++  if (process.env.INSTALL_KEY) return "env";
++  if (process.env.INSTALL_OPEN === "1") return "open";
++  return "file";
++}
++
++export const INSTALL_KEY_FILE = KEY_FILE;
++
++function readKeyFile(): string | null {
++  try {
++    const k = fs.readFileSync(KEY_FILE, "utf8").trim();
++    return k.length >= 16 ? k : null;
++  } catch {
++    return null;
++  }
++}
++
++function announceKey(key: string, where: string) {
++  console.warn(`\n[install] ⚠ کلید نصب (برای باز کردن /install لازم است): ${key}\n[install]   ${where}\n`);
++}
++
++/** کلید فایل را (اگر نبود) می‌سازد؛ هم‌زمانیِ چند درخواست با فلگ "wx" بی‌خطر است */
++function ensureFileKey(): string {
++  const existing = readKeyFile();
++  if (existing) return existing;
++  if (memKey) return memKey;
++  const key = crypto.randomBytes(18).toString("base64url");
++  try {
++    fs.mkdirSync(STORAGE_DIR, { recursive: true });
++    fs.writeFileSync(KEY_FILE, `${key}\n`, { mode: 0o600, flag: "wx" });
++    announceKey(key, `ذخیره‌شده در ${KEY_FILE}`);
++    return key;
++  } catch (e) {
++    if ((e as NodeJS.ErrnoException).code === "EEXIST") return readKeyFile() ?? key;
++    memKey = key; // storage قابل‌نوشتن نیست؛ کلید فقط در حافظه‌ی همین پردازه و لاگ می‌ماند (باز هم بسته است)
++    announceKey(key, "فقط در حافظه‌ی سرور (پوشه‌ی storage قابل نوشتن نیست)");
++    return key;
++  }
++}
++
++function requiredKey(): string | null {
++  const src = installKeySource();
++  if (src === "env") return process.env.INSTALL_KEY!;
++  if (src === "open") {
++    if (!openWarned) {
++      openWarned = true;
++      console.warn("[install] ⚠ INSTALL_OPEN=1: نصب‌کننده بدون کلید باز است؛ فقط برای آزمون محلی/CI.");
+     }
++    return null;
++  }
++  return ensureFileKey();
++}
++
++function discardInstallKey() {
++  memKey = null;
++  try {
++    fs.unlinkSync(KEY_FILE);
+   } catch {
+-    /* جدول‌ها هنوز ساخته نشده */
++    /* وجود نداشت */
+   }
+-  return false;
++}
++
++/** ساخت کلید (در صورت نیاز) بدون افشای آن؛ هنگام نمایش صفحه‌ی نصب فراخوانی می‌شود تا مالک کلید را در فایل/لاگ ببیند */
++export function prepareInstallKey(): void {
++  requiredKey();
++}
++
++// شمارش سراسری کلید غلط: حتی با هزاران IP هم نمی‌توان کلید را حدس زد (۲۰ تلاش ناموفق در ۱۵ دقیقه ← قفل موقت)
++const KEY_FAIL_MAX = 20;
++const KEY_FAIL_WINDOW = 15 * 60_000;
++let keyFails = { n: 0, reset: 0 };
++export function keyAttemptsLocked(): boolean {
++  return Date.now() < keyFails.reset && keyFails.n >= KEY_FAIL_MAX;
++}
++export function recordKeyFailure(): void {
++  const now = Date.now();
++  keyFails = now >= keyFails.reset ? { n: 1, reset: now + KEY_FAIL_WINDOW } : { n: keyFails.n + 1, reset: keyFails.reset };
++}
++/** فقط برای آزمون */
++export function __resetKeyFailures(): void {
++  keyFails = { n: 0, reset: 0 };
+ }
+ 
+ export type InstallStatus = {
+@@ -42,12 +171,17 @@ export type InstallStatus = {
+   databaseFromEnv: boolean;
+   databaseConnected: boolean;
+   keyRequired: boolean;
++  keySource: InstallKeySource;
++  /** دیتابیس پیکربندی شده ولی وضعیتش خوانده نشد؛ برای امنیت نصب بسته است */
++  stateUnknown: boolean;
+   https: boolean;
+ };
+ 
+ export async function getInstallStatus(https: boolean): Promise<InstallStatus> {
+-  const installed = await isInstalled();
++  const state = await getInstallState();
++  const installed = state === "installed";
+   const cfg = getConfig();
++  if (state === "fresh") prepareInstallKey();
+   let databaseConnected = false;
+   if (cfg.databaseUrl) {
+     try {
+@@ -65,14 +199,16 @@ export async function getInstallStatus(https: boolean): Promise<InstallStatus> {
+     storageOk: storageWritable(),
+     databaseFromEnv: cfg.databaseFromEnv,
+     databaseConnected,
+-    keyRequired: !!process.env.INSTALL_KEY,
++    keyRequired: installKeySource() !== "open",
++    keySource: installKeySource(),
++    stateUnknown: state === "unknown",
+     https,
+   };
+ }
+ 
+ export function keyMatches(given: string | undefined): boolean {
+-  const required = process.env.INSTALL_KEY;
+-  if (!required) return true;
++  const required = requiredKey();
++  if (required === null) return true;
+   const a = crypto.createHash("sha256").update(String(given ?? "")).digest();
+   const b = crypto.createHash("sha256").update(required).digest();
+   return crypto.timingSafeEqual(a, b);
+@@ -260,4 +396,5 @@ export async function createFirstAdmin(a: AccountInput): Promise<{ userId: numbe
+ export function finalizeInstall(): void {
+   writeInstallLock();
+   installedMemo = true;
++  discardInstallKey();
+ }
+diff --git a/tests/integration/backup-complete.test.ts b/tests/integration/backup-complete.test.ts
+new file mode 100644
+index 0000000..8c42064
+--- /dev/null
++++ b/tests/integration/backup-complete.test.ts
+@@ -0,0 +1,204 @@
++import crypto from "node:crypto";
++import fs from "node:fs";
++import os from "node:os";
++import path from "node:path";
++import { describe, expect, it } from "vitest";
++import { sql } from "drizzle-orm";
++import { db } from "@/db";
++import {
++  createBackup,
++  generateRecoveryKeyPair,
++  listBackups,
++  openBackupSecrets,
++  openSecrets,
++  recoveryFingerprint,
++  restoreBackup,
++  sealSecrets,
++  verifyBackup,
++} from "@/modules/backup/core";
++import { SCHEMA_CREATE } from "@/modules/install/schema-sql";
++
++/**
++ * CR-04 — «مدارک KYC و SESSION_SECRET در بک‌آپ نیستند و نسخه‌ها روی همان volume داده‌ی اصلی ذخیره می‌شوند.»
++ */
++const databaseUrl = process.env.TEST_DATABASE_URL!;
++const SECRET = "prod-session-secret-" + crypto.randomBytes(16).toString("hex");
++const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), "emz-bkc-"));
++const usersCount = async () => ((await db.execute(sql`select count(*)::int as n from users`)).rows[0] as { n: number }).n;
++
++function storageWithKyc() {
++  const storage = tmp();
++  fs.mkdirSync(path.join(storage, "kyc"));
++  fs.mkdirSync(path.join(storage, "signatures"));
++  fs.writeFileSync(path.join(storage, "kyc", "kyc-1.enc"), crypto.randomBytes(64));
++  fs.writeFileSync(path.join(storage, "signatures", "s.png"), "SIG");
++  return storage;
++}
++
++function allFiles(dir: string): string[] {
++  return fs.readdirSync(dir, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? allFiles(path.join(dir, e.name)) : [path.join(dir, e.name)]));
++}
++
++describe("CR-04: محتوای بک‌آپ کامل است", () => {
++  it("مدارک KYC در بک‌آپ و manifest هستند و هشِ آن‌ها راستی‌آزمایی می‌شود", async () => {
++    const storage = storageWithKyc();
++    const pair = generateRecoveryKeyPair();
++    const r = await createBackup({ databaseUrl, storageDir: storage, backupDir: tmp(), sessionSecret: SECRET, recoveryPublicKey: pair.publicKey });
++    expect(r.manifest.files.map((f) => f.path)).toContain("files/kyc/kyc-1.enc");
++    expect((await verifyBackup(r.dir)).ok).toBe(true);
++    // دستکاری مدرک KYC در بک‌آپ شناسایی می‌شود
++    fs.appendFileSync(path.join(r.dir, "files", "kyc", "kyc-1.enc"), "x");
++    expect((await verifyBackup(r.dir)).problems.join()).toMatch(/kyc-1\.enc/);
++  });
++
++  it("SESSION_SECRET در بک‌آپ هست ولی «هرگز» به‌صورت متن ساده نیست", async () => {
++    const storage = storageWithKyc();
++    const pair = generateRecoveryKeyPair();
++    const r = await createBackup({ databaseUrl, storageDir: storage, backupDir: tmp(), sessionSecret: SECRET, recoveryPublicKey: pair.publicKey });
++    expect(r.manifest.secrets?.recipient).toBe(recoveryFingerprint(pair.publicKey));
++    expect(r.warnings).not.toContain("secret-not-sealed");
++    for (const f of allFiles(r.dir)) {
++      const data = fs.readFileSync(f);
++      expect(data.includes(Buffer.from(SECRET)), f).toBe(false);
++      expect(data.includes(Buffer.from(pair.privateKey)), f).toBe(false);
++    }
++    expect((fs.statSync(path.join(r.dir, "secrets.sealed.json")).mode & 0o077)).toBe(0);
++    // فقط دارنده‌ی کلید خصوصی بازیابی می‌تواند باز کند
++    expect((await openBackupSecrets(r.dir, pair.privateKey))?.sessionSecret).toBe(SECRET);
++    const other = generateRecoveryKeyPair();
++    await expect(openBackupSecrets(r.dir, other.privateKey)).rejects.toThrow(/اشتباه/);
++    // دستکاری فایل مهر‌شده هم در verify و هم در باز کردن رد می‌شود
++    const f = path.join(r.dir, "secrets.sealed.json");
++    const sealed = JSON.parse(fs.readFileSync(f, "utf8"));
++    sealed.ct = Buffer.from(Buffer.from(sealed.ct, "base64url").map((b, i) => (i === 0 ? b ^ 1 : b))).toString("base64url");
++    fs.writeFileSync(f, JSON.stringify(sealed));
++    expect((await verifyBackup(r.dir)).problems.join()).toMatch(/secrets\.sealed/);
++    expect(() => openSecrets(JSON.stringify(sealed), pair.privateKey)).toThrow();
++  });
++
++  it("هر مهر، تصادفی است (دو بک‌آپ پشت‌سرهم رمزنوشته‌ی یکسان ندارند)", () => {
++    const pair = generateRecoveryKeyPair();
++    expect(sealSecrets({ sessionSecret: SECRET }, pair.publicKey)).not.toBe(sealSecrets({ sessionSecret: SECRET }, pair.publicKey));
++  });
++
++  it("بدون کلید بازیابی: بک‌آپ ساخته می‌شود ولی راز ذخیره نمی‌شود و هشدار می‌دهد (هرگز متن ساده نمی‌نویسد)", async () => {
++    const storage = storageWithKyc();
++    const r = await createBackup({ databaseUrl, storageDir: storage, backupDir: tmp(), sessionSecret: SECRET });
++    expect(r.manifest.secrets).toBeUndefined();
++    expect(r.warnings).toContain("secret-not-sealed");
++    expect(r.manifest.files.map((f) => f.path)).toContain("files/kyc/kyc-1.enc");
++    for (const f of allFiles(r.dir)) expect(fs.readFileSync(f).includes(Buffer.from(SECRET)), f).toBe(false);
++  });
++});
++
++describe("CR-04: بازیابی کامل (KYC + SESSION_SECRET)", () => {
++  it("سرور از دست رفته: از بک‌آپ + کلید بازیابی، KYC و کلید امنیتی روی سرور تازه برمی‌گردد", async () => {
++    const storage = storageWithKyc();
++    const kycBytes = fs.readFileSync(path.join(storage, "kyc", "kyc-1.enc"));
++    const pair = generateRecoveryKeyPair();
++    const r = await createBackup({ databaseUrl, storageDir: storage, backupDir: tmp(), sessionSecret: SECRET, recoveryPublicKey: pair.publicKey });
++    const before = await usersCount();
++
++    const fresh = tmp(); // storage سرور جدید: خالی
++    const res = await restoreBackup({ backup: r.dir, databaseUrl, storageDir: fresh, schemaStatements: SCHEMA_CREATE, recoveryKey: pair.privateKey });
++    expect(res.secretsRestored).toBe(true);
++    expect(fs.readFileSync(path.join(fresh, "kyc", "kyc-1.enc")).equals(kycBytes)).toBe(true);
++    const cfg = JSON.parse(fs.readFileSync(path.join(fresh, "config.json"), "utf8"));
++    expect(cfg.sessionSecret).toBe(SECRET);
++    expect(fs.statSync(path.join(fresh, "config.json")).mode & 0o077).toBe(0);
++    expect(await usersCount()).toBe(before);
++  });
++
++  it("بدون کلید یا با کلید غلط، بازیابی «پیش از هر تغییر» متوقف می‌شود (داده‌ی فعلی دست‌نخورده)", async () => {
++    const storage = storageWithKyc();
++    const pair = generateRecoveryKeyPair();
++    const r = await createBackup({ databaseUrl, storageDir: storage, backupDir: tmp(), sessionSecret: SECRET, recoveryPublicKey: pair.publicKey });
++    const before = await usersCount();
++    const fresh = tmp();
++    await expect(restoreBackup({ backup: r.dir, databaseUrl, storageDir: fresh, schemaStatements: SCHEMA_CREATE })).rejects.toThrow(/کلید بازیابی/);
++    await expect(restoreBackup({ backup: r.dir, databaseUrl, storageDir: fresh, schemaStatements: SCHEMA_CREATE, recoveryKey: generateRecoveryKeyPair().privateKey })).rejects.toThrow(/اشتباه/);
++    expect(fs.readdirSync(fresh)).toEqual([]);
++    expect(await usersCount()).toBe(before);
++    // انتخاب آگاهانه‌ی «بدون راز»
++    const res = await restoreBackup({ backup: r.dir, databaseUrl, storageDir: fresh, schemaStatements: SCHEMA_CREATE, skipSecrets: true });
++    expect(res.secretsRestored).toBe(false);
++    expect(fs.existsSync(path.join(fresh, "config.json"))).toBe(false);
++  });
++
++  it("بک‌آپ‌های قدیمی (بدون راز) مثل قبل بازیابی می‌شوند", async () => {
++    const storage = tmp();
++    const r = await createBackup({ databaseUrl, storageDir: storage, backupDir: tmp() });
++    const res = await restoreBackup({ backup: r.dir, databaseUrl, storageDir: storage, schemaStatements: SCHEMA_CREATE });
++    expect(res.secretsRestored).toBe(false);
++  });
++});
++
++describe("CR-04: نسخه‌ها فقط روی volume داده‌ی اصلی نیستند", () => {
++  it("آینه‌ها: کپی کامل، راستی‌آزمایی در مقصد، و سیاست نگهداری در هر مقصد", async () => {
++    const storage = storageWithKyc();
++    const backupDir = tmp();
++    const m1 = path.join(tmp(), "offsite-a");
++    const m2 = path.join(tmp(), "offsite-b");
++    const pair = generateRecoveryKeyPair();
++    let last!: Awaited<ReturnType<typeof createBackup>>;
++    for (let i = 0; i < 3; i++) {
++      last = await createBackup({ databaseUrl, storageDir: storage, backupDir, keep: 2, mirrorDirs: [m1, m2], sessionSecret: SECRET, recoveryPublicKey: pair.publicKey });
++      await new Promise((r) => setTimeout(r, 1100));
++    }
++    expect(last.mirrors.map((m) => m.ok)).toEqual([true, true]);
++    for (const m of [m1, m2]) {
++      const list = (await listBackups(m)).filter((b) => b.ok);
++      expect(list.length).toBe(2); // نگهداری در مقصد هم اعمال شد
++      expect((await verifyBackup(list[0].dir)).ok).toBe(true);
++      expect(fs.statSync(list[0].dir).mode & 0o077).toBe(0);
++      expect((await openBackupSecrets(list[0].dir, pair.privateKey))?.sessionSecret).toBe(SECRET);
++    }
++    // نسخه‌ی آینه به‌تنهایی قابل بازیابی است (سرور اصلی و volume اصلی از بین رفته‌اند)
++    const [fromMirror] = await listBackups(m2);
++    const fresh = tmp();
++    const res = await restoreBackup({ backup: fromMirror.dir, databaseUrl, storageDir: fresh, schemaStatements: SCHEMA_CREATE, recoveryKey: pair.privateKey });
++    expect(res.files).toBeGreaterThan(0);
++    expect(fs.existsSync(path.join(fresh, "kyc", "kyc-1.enc"))).toBe(true);
++  }, 60_000);
++
++  it("خرابی یک آینه، بک‌آپ اصلی را خراب نمی‌کند ولی هشدار می‌دهد؛ آینه‌ی سالم دیگر کار می‌کند", async () => {
++    const storage = tmp();
++    const notADir = path.join(tmp(), "file");
++    fs.writeFileSync(notADir, "x");
++    const good = path.join(tmp(), "good");
++    const r = await createBackup({ databaseUrl, storageDir: storage, backupDir: tmp(), mirrorDirs: [path.join(notADir, "sub"), good] });
++    expect((await verifyBackup(r.dir)).ok).toBe(true);
++    expect(r.mirrors.map((m) => m.ok)).toEqual([false, true]);
++    expect(r.warnings).toContain("mirror-failed");
++    expect((await listBackups(good)).length).toBe(1);
++  });
++
++  it("مقصد آینه برابر مقصد اصلی رد می‌شود (کپی بی‌معنی)", async () => {
++    const backupDir = tmp();
++    const r = await createBackup({ databaseUrl, storageDir: tmp(), backupDir, mirrorDirs: [backupDir] });
++    expect(r.mirrors[0].ok).toBe(false);
++    expect(r.warnings).toContain("mirror-failed");
++  });
++
++  it("نسخه‌ها داخل volume داده‌ی اصلی و بدون آینه‌ی بیرونی ← هشدار؛ با آینه‌ی بیرونی ← بدون هشدار", async () => {
++    const storage = storageWithKyc();
++    const inside = path.join(storage, "backups");
++    const a = await createBackup({ databaseUrl, storageDir: storage, backupDir: inside });
++    expect(a.warnings).toContain("backups-inside-data-volume");
++    expect(a.manifest.warnings).toContain("backups-inside-data-volume");
++    await new Promise((r) => setTimeout(r, 1100));
++    const b = await createBackup({ databaseUrl, storageDir: storage, backupDir: inside, mirrorDirs: [path.join(tmp(), "offsite")] });
++    expect(b.warnings).not.toContain("backups-inside-data-volume");
++    // آینه‌ای که خودش داخل volume داده است، «بیرونی» حساب نمی‌شود
++    await new Promise((r) => setTimeout(r, 1100));
++    const c = await createBackup({ databaseUrl, storageDir: storage, backupDir: inside, mirrorDirs: [path.join(storage, "mirror")] });
++    expect(c.warnings).toContain("backups-inside-data-volume");
++    // خود پوشه‌ی backups داخل storage، در بک‌آپ بعدی تو در تو کپی نمی‌شود
++    expect(c.manifest.files.some((f) => f.path.includes("backups/"))).toBe(false);
++  }, 30_000);
++
++  it("نسخه‌ی بیرون از volume داده، هشدار ندارد", async () => {
++    const r = await createBackup({ databaseUrl, storageDir: tmp(), backupDir: tmp() });
++    expect(r.warnings).toEqual([]);
++  });
++});
+diff --git a/tests/integration/install-fail-closed.test.ts b/tests/integration/install-fail-closed.test.ts
+new file mode 100644
+index 0000000..32ac31f
+--- /dev/null
++++ b/tests/integration/install-fail-closed.test.ts
+@@ -0,0 +1,104 @@
++import fs from "node:fs";
++import path from "node:path";
++import { Pool } from "pg";
++import { afterAll, beforeAll, describe, expect, it } from "vitest";
++import { sql } from "drizzle-orm";
++import { db } from "@/db";
++import { STORAGE_DIR, writeConfig } from "@/lib/config";
++import { installAccountAction, installDatabaseAction, testDatabaseAction } from "@/modules/install/actions";
++import { getInstallState, getInstallStatus, INSTALL_KEY_FILE } from "@/modules/install/service";
++import { SCHEMA_CREATE } from "@/modules/install/schema-sql";
++
++/**
++ * CR-03 (بخش دوم، فایل جدا چون وضعیت «نصب‌شده» در حافظه‌ی پردازه می‌ماند):
++ * «در شرایط خاص (قطع DB و نبود lock-file) آدرس دیتابیس هم قابل بازنویسی است.» ← اکنون وضعیت نامعلوم = بسته.
++ */
++const ISO = "emz_test_install_cr03b";
++const base = new URL(process.env.TEST_DATABASE_URL!);
++const urlOf = (name: string) => {
++  const u = new URL(base.toString());
++  u.pathname = `/${name}`;
++  return u.toString();
++};
++const savedUrl = process.env.DATABASE_URL;
++const CONFIG_FILE = path.join(STORAGE_DIR, "config.json");
++const LOCK_FILE = path.join(STORAGE_DIR, "installed.lock");
++const DEAD_URL = "postgresql://postgres:postgres@127.0.0.1:1/ghost"; // پورتی که کسی روی آن گوش نمی‌دهد
++const HOSTILE = { mode: "url" as const, url: "postgresql://attacker:pw@evil.example.net:5432/loot" };
++const account = { siteName: "سایت من", name: "مالک سرور", email: "owner@example.com", mobile: "09120000000", password: "Passw0rdX9" };
++const clean = () => {
++  for (const f of [CONFIG_FILE, LOCK_FILE, INSTALL_KEY_FILE]) fs.rmSync(f, { force: true });
++};
++
++let iso: Pool;
++const admin = () => new Pool({ connectionString: urlOf("postgres"), max: 1 });
++
++beforeAll(async () => {
++  const a = admin();
++  try {
++    await a.query(`DROP DATABASE IF EXISTS "${ISO}" WITH (FORCE)`);
++    await a.query(`CREATE DATABASE "${ISO}"`);
++  } finally {
++    await a.end();
++  }
++  iso = new Pool({ connectionString: urlOf(ISO), max: 2 });
++  for (const st of SCHEMA_CREATE) await iso.query(st);
++  clean();
++});
++
++afterAll(async () => {
++  process.env.DATABASE_URL = savedUrl;
++  delete process.env.INSTALL_OPEN;
++  await db.execute(sql`select 1`);
++  await iso.end();
++  const a = admin();
++  await a.query(`DROP DATABASE IF EXISTS "${ISO}" WITH (FORCE)`).catch(() => undefined);
++  await a.end();
++  clean();
++});
++
++describe("CR-03: قطع دیتابیس + نبود lock-file دیگر آدرس دیتابیس را قابل بازنویسی نمی‌کند", () => {
++  it("دیتابیس پیکربندی‌شده ولی در دسترس نیست ← وضعیت «نامعلوم» ← نصب‌کننده بسته (حتی با کلید درست)", async () => {
++    clean();
++    // نصب‌شده‌ی واقعی با فایل پیکربندی (بدون DATABASE_URL محیطی) که دیتابیسش موقتاً قطع است
++    process.env.DATABASE_URL = "";
++    writeConfig({ databaseUrl: DEAD_URL, sessionSecret: "s".repeat(40) });
++    const before = fs.readFileSync(CONFIG_FILE, "utf8");
++    expect(fs.existsSync(LOCK_FILE)).toBe(false);
++
++    expect(await getInstallState()).toBe("unknown");
++    const st = await getInstallStatus(true);
++    expect(st.installed).toBe(false);
++    expect(st.stateUnknown).toBe(true);
++
++    // مهاجم بدون کلید، و حتی مالک با کلید درست، تا برگشتن دیتابیس نمی‌تواند چیزی بنویسد
++    const keyAttempts = [undefined, "x", "emz-anything"];
++    for (const k of keyAttempts) {
++      expect((await installDatabaseAction(HOSTILE, k)).ok).toBe(false);
++      expect((await testDatabaseAction(HOSTILE, k)).ok).toBe(false);
++      expect((await installAccountAction(account, k)).ok).toBe(false);
++    }
++    process.env.INSTALL_OPEN = "1"; // حتی حالت باز هم در وضعیت نامعلوم بسته می‌ماند
++    const open = await installDatabaseAction(HOSTILE, undefined);
++    expect(open.ok).toBe(false);
++    expect(open.error).toMatch(/دیتابیس/);
++
++    expect(fs.readFileSync(CONFIG_FILE, "utf8")).toBe(before); // آدرس دیتابیس دست‌نخورده
++    expect(JSON.parse(before).databaseUrl).toBe(DEAD_URL);
++    expect(fs.existsSync(LOCK_FILE)).toBe(false);
++  });
++
++  it("وقتی دیتابیس برگشت و کاربری دارد، خودش قفل می‌شود (نصب‌شده)", async () => {
++    // دیتابیس برگشته و یک مدیر دارد، ولی lock-file هنوز نیست
++    await iso.query("insert into users (name, email, mobile, password_hash, role) values ('مالک', 'o@example.com', '09120000009', 'x', 'admin')");
++    clean();
++    process.env.DATABASE_URL = urlOf(ISO);
++    writeConfig({ databaseUrl: urlOf(ISO) }); // کش پیکربندی را تازه می‌کند
++    process.env.DATABASE_URL = "";
++    expect(await getInstallState()).toBe("installed");
++    expect(fs.existsSync(LOCK_FILE)).toBe(true);
++    // با وجود قفل، حتی با دیتابیس قطع هم «نصب‌شده» است (نه نامعلوم)
++    writeConfig({ databaseUrl: DEAD_URL });
++    expect(await getInstallState()).toBe("installed");
++  });
++});
+diff --git a/tests/integration/install-hardening.test.ts b/tests/integration/install-hardening.test.ts
+new file mode 100644
+index 0000000..78649a4
+--- /dev/null
++++ b/tests/integration/install-hardening.test.ts
+@@ -0,0 +1,147 @@
++import fs from "node:fs";
++import path from "node:path";
++import { Pool } from "pg";
++import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
++import { sql } from "drizzle-orm";
++import { db } from "@/db";
++import { STORAGE_DIR, writeConfig } from "@/lib/config";
++import {
++  installAccountAction,
++  installDatabaseAction,
++  installFinishAction,
++  testDatabaseAction,
++} from "@/modules/install/actions";
++import {
++  __resetKeyFailures,
++  getInstallState,
++  getInstallStatus,
++  INSTALL_KEY_FILE,
++  keyMatches,
++} from "@/modules/install/service";
++import { SCHEMA_CREATE } from "@/modules/install/schema-sql";
++
++/**
++ * CR-03 — نصب‌کننده‌ی وب:
++ *  «اگر INSTALL_KEY تنظیم نشده باشد، اولین بازدیدکننده مدیر کل می‌شود. در شرایط خاص (قطع DB و نبود lock-file)
++ *   آدرس دیتابیس هم قابل بازنویسی است.»
++ * هر دو راه باید بسته باشد: بدون کلید مالکیت، نصب ممکن نیست؛ و «وضعیت نامعلوم» = بسته.
++ */
++const ISO = "emz_test_install_cr03";
++const base = new URL(process.env.TEST_DATABASE_URL!);
++const urlOf = (name: string) => {
++  const u = new URL(base.toString());
++  u.pathname = `/${name}`;
++  return u.toString();
++};
++const savedUrl = process.env.DATABASE_URL;
++const CONFIG_FILE = path.join(STORAGE_DIR, "config.json");
++const LOCK_FILE = path.join(STORAGE_DIR, "installed.lock");
++const DEAD_URL = "postgresql://postgres:postgres@127.0.0.1:1/ghost"; // پورتی که کسی روی آن گوش نمی‌دهد
++const HOSTILE = { mode: "url" as const, url: "postgresql://attacker:pw@evil.example.net:5432/loot" };
++const account = { siteName: "سایت من", name: "مالک سرور", email: "owner@example.com", mobile: "09120000000", password: "Passw0rdX9" };
++
++const readKey = () => fs.readFileSync(INSTALL_KEY_FILE, "utf8").trim();
++const clean = () => {
++  for (const f of [CONFIG_FILE, LOCK_FILE, INSTALL_KEY_FILE]) fs.rmSync(f, { force: true });
++};
++
++let iso: Pool;
++const admin = () => new Pool({ connectionString: urlOf("postgres"), max: 1 });
++
++beforeAll(async () => {
++  const a = admin();
++  try {
++    await a.query(`DROP DATABASE IF EXISTS "${ISO}" WITH (FORCE)`);
++    await a.query(`CREATE DATABASE "${ISO}"`);
++  } finally {
++    await a.end();
++  }
++  iso = new Pool({ connectionString: urlOf(ISO), max: 2 });
++  clean();
++});
++
++afterAll(async () => {
++  process.env.DATABASE_URL = savedUrl;
++  await db.execute(sql`select 1`);
++  await iso.end();
++  const a = admin();
++  await a.query(`DROP DATABASE IF EXISTS "${ISO}" WITH (FORCE)`).catch(() => undefined);
++  await a.end();
++  clean();
++});
++
++beforeEach(() => {
++  __resetKeyFailures();
++  delete process.env.INSTALL_KEY;
++  delete process.env.INSTALL_OPEN;
++});
++
++describe("CR-03: اولین بازدیدکننده دیگر مدیر کل نمی‌شود", () => {
++  it("روی دیتابیس خالی بدون کلید: همه‌ی مراحل نصب رد می‌شوند و هیچ مدیری ساخته نمی‌شود", async () => {
++    process.env.DATABASE_URL = urlOf(ISO); // دیتابیس خالی (جدولی نیست)
++    expect(await getInstallState()).toBe("fresh");
++
++    const st = await getInstallStatus(true);
++    expect(st.keyRequired).toBe(true);
++    expect(st.keySource).toBe("file");
++    // کلید تصادفی فقط روی دیسک سرور (مجوز 0600) ساخته شده؛ به بازدیدکننده داده نمی‌شود
++    const key = readKey();
++    expect(key.length).toBeGreaterThanOrEqual(24);
++    expect(fs.statSync(INSTALL_KEY_FILE).mode & 0o077).toBe(0);
++    expect(JSON.stringify(st)).not.toContain(key);
++
++    for (const wrong of [undefined, "", "guess", key.slice(0, -1), key + "x"]) {
++      expect((await testDatabaseAction({ mode: "url", url: urlOf(ISO) }, wrong)).ok).toBe(false);
++      expect((await installDatabaseAction({ mode: "url", url: urlOf(ISO) }, wrong)).ok).toBe(false);
++      const r = await installAccountAction(account, wrong);
++      expect(r.ok).toBe(false);
++      expect(r.error).toMatch(/کلید نصب/);
++    }
++    // هیچ جدول و کاربری ساخته نشد
++    const t = await iso.query("select count(*)::int as n from information_schema.tables where table_schema = 'public'");
++    expect(t.rows[0].n).toBe(0);
++  });
++
++  it("کلید غلط تکراری، نصب‌کننده را (حتی برای کلید درست) موقتاً قفل می‌کند", async () => {
++    process.env.DATABASE_URL = urlOf(ISO);
++    const key = readKey();
++    for (let i = 0; i < 20; i++) await installAccountAction(account, `wrong-${i}`);
++    const locked = await installAccountAction(account, key);
++    expect(locked.ok).toBe(false);
++    expect(locked.error).toMatch(/قفل/);
++    __resetKeyFailures();
++    expect(keyMatches(key)).toBe(true);
++  });
++
++  it("INSTALL_KEY محیط اولویت دارد؛ کلید فایل دیگر پذیرفته نمی‌شود", () => {
++    process.env.INSTALL_KEY = "owner-chosen-key-123";
++    expect(keyMatches("owner-chosen-key-123")).toBe(true);
++    expect(keyMatches(readKey())).toBe(false);
++    expect(keyMatches("")).toBe(false);
++  });
++
++  it("INSTALL_OPEN=1 فقط انصراف صریح (CI) است و بدون آن هرگز باز نیست", () => {
++    expect(keyMatches("")).toBe(false);
++    process.env.INSTALL_OPEN = "1";
++    expect(keyMatches("")).toBe(true);
++  });
++
++  it("با کلید درست نصب کامل می‌شود؛ پس از پایان، کلید حذف و نصب‌کننده برای همیشه بسته می‌شود", async () => {
++    process.env.DATABASE_URL = urlOf(ISO);
++    const key = readKey();
++    expect((await testDatabaseAction({ mode: "url", url: urlOf(ISO) }, key)).ok).toBe(true);
++    expect((await installDatabaseAction({ mode: "url", url: urlOf(ISO) }, key)).ok).toBe(true);
++    const res = await installAccountAction(account, key);
++    expect(res.ok, res.error).toBe(true);
++    expect((await installFinishAction()).ok).toBe(true);
++
++    expect(await getInstallState()).toBe("installed");
++    expect(fs.existsSync(INSTALL_KEY_FILE)).toBe(false);
++    expect((await iso.query("select count(*)::int as n from users where role = 'admin'")).rows[0].n).toBe(1);
++
++    // نفر دوم، حتی با کلیدی که قبلاً درست بود، مدیر دومی نمی‌سازد
++    const again = await installAccountAction({ ...account, email: "attacker@example.com" }, key);
++    expect(again.ok).toBe(false);
++    expect((await iso.query("select count(*)::int as n from users")).rows[0].n).toBe(1);
++  });
++});
+diff --git a/tests/php/release.php b/tests/php/release.php
+new file mode 100644
+index 0000000..7f02aee
+--- /dev/null
++++ b/tests/php/release.php
+@@ -0,0 +1,41 @@
++<?php
++/**
++ * آزمون راستی‌آزمایی امضای انتشار افزونه (CR-05) — اجرای PHP واقعی روی بسته‌هایی که Node ساخته است.
++ * استفاده:  php tests/php/release.php <cases.json>      (توسط tests/unit/wp-release.test.ts اجرا می‌شود)
++ * اگر sodium بومی نبود، sodium_compat همراه وردپرس (همان که وردپرس خودش بارگذاری می‌کند) از SODIUM_COMPAT_DIR می‌آید.
++ */
++define( 'ABSPATH', __DIR__ . '/' );
++class WP_Error {
++	public $code;
++	public $msg;
++	public function __construct( $code = '', $msg = '' ) {
++		$this->code = $code;
++		$this->msg  = $msg;
++	}
++}
++function is_wp_error( $x ) {
++	return $x instanceof WP_Error;
++}
++function __( $s ) {
++	return $s;
++}
++if ( ! function_exists( 'sodium_crypto_sign_verify_detached' ) ) {
++	$d = getenv( 'SODIUM_COMPAT_DIR' );
++	if ( $d && is_readable( $d . '/autoload.php' ) ) {
++		require_once $d . '/autoload.php';
++	}
++}
++require_once dirname( __DIR__, 2 ) . '/wordpress-plugin/emzagar-contracts/includes/class-emzagar-release.php';
++
++$cases = json_decode( file_get_contents( $argv[1] ), true );
++$out   = array();
++foreach ( $cases as $c ) {
++	$keys = $c['keys'];
++	if ( 'zip' === $c['kind'] ) {
++		$r = Emzagar_Release::verify_zip( $c['path'], $c['expect'], $c['current'], $c['origins'], $keys );
++	} else {
++		$r = Emzagar_Release::verify_dir( $c['path'], $c['expect'], $c['current'], $c['origins'], $keys );
++	}
++	$out[ $c['name'] ] = is_wp_error( $r ) ? $r->code : 'ok';
++}
++echo json_encode( $out );
+diff --git a/tests/unit/wp-release.test.ts b/tests/unit/wp-release.test.ts
+new file mode 100644
+index 0000000..6400fd4
+--- /dev/null
++++ b/tests/unit/wp-release.test.ts
+@@ -0,0 +1,256 @@
++import { spawnSync } from "node:child_process";
++import fs from "node:fs";
++import os from "node:os";
++import path from "node:path";
++import { strToU8, unzipSync, zipSync, type Zippable } from "fflate";
++import { describe, expect, it } from "vitest";
++import { buildPluginZip } from "@/lib/wp-plugin-zip";
++import {
++  buildManifest,
++  generateSigningKey,
++  PLUGIN_CONFIG,
++  PLUGIN_ROOT,
++  PLUGIN_SLUG,
++  RELEASE_MANIFEST,
++  RELEASE_SIG,
++  renderPluginConfig,
++  signManifestBytes,
++  trustedKeysFromPhp,
++  verifyBundledRelease,
++  verifyRelease,
++  type TrustedKeys,
++} from "@/lib/wp-release";
++
++/**
++ * CR-05 — «بسته‌ی افزونه فقط با بررسی ساده نصب می‌شد»؛ اکنون امضای Ed25519 + SHA-256 + پین کلید.
++ * هر سناریوی حمله هم با پیاده‌سازی مرجع Node و هم با «کد واقعی PHP افزونه» (در صورت وجود PHP) آزموده می‌شود.
++ */
++const PHP = process.env.PHP_BIN || "php";
++const phpOut = spawnSync(PHP, ["-r", 'echo function_exists("sodium_crypto_sign_verify_detached") ? "1" : "0";'], { encoding: "utf8", env: process.env });
++const phpHasSodium = phpOut.status === 0 && phpOut.stdout === "1";
++const phpHasCompat = !!process.env.SODIUM_COMPAT_DIR && fs.existsSync(path.join(process.env.SODIUM_COMPAT_DIR, "autoload.php"));
++const phpReady = phpOut.status === 0 && (phpHasSodium || phpHasCompat);
++
++const ORIGIN = "https://cloud.example.com";
++const files = (): Record<string, Uint8Array> => ({
++  "emzagar-contracts.php": strToU8("<?php // plugin v9.1.0\n"),
++  "includes/class-a.php": strToU8("<?php class A {}\n"),
++  "assets/app.js": strToU8("console.log(1)\n"),
++});
++
++const good = generateSigningKey();
++const attacker = generateSigningKey();
++const KEYS: TrustedKeys = { "emz-rel-test-a": good.publicRaw };
++
++function signed(version: string, f = files(), opts: { key?: typeof good; keyId?: string; manifestFrom?: Record<string, Uint8Array> } = {}): Record<string, Uint8Array> {
++  const manifest = Buffer.from(JSON.stringify(buildManifest(opts.manifestFrom ?? f, version), null, 2) + "\n");
++  const sig = signManifestBytes(manifest, (opts.key ?? good).privatePem, opts.keyId ?? "emz-rel-test-a");
++  return { ...f, [RELEASE_MANIFEST]: new Uint8Array(manifest), [RELEASE_SIG]: strToU8(sig) };
++}
++
++interface Case {
++  name: string;
++  entries: Record<string, Uint8Array>;
++  expect: string; // ok | کد خطا
++  expectVersion?: string;
++  current?: string;
++  origins?: string[];
++  rawZip?: Zippable; // برای حمله‌هایی که نام‌های غیرمعمول دارند (Node آن‌ها را نمی‌سازد)
++  symlink?: boolean;
++  nodeToo?: boolean;
++}
++
++const cases: Case[] = [
++  { name: "valid", entries: signed("9.1.0"), expect: "ok", current: "9.0.0", expectVersion: "9.1.0", nodeToo: true },
++  { name: "valid-with-exact-config", entries: { ...signed("9.1.0"), [PLUGIN_CONFIG]: strToU8(renderPluginConfig(ORIGIN)) }, expect: "ok", current: "9.0.0", nodeToo: true },
++  {
++    name: "tampered-file",
++    entries: { ...signed("9.1.0"), "includes/class-a.php": strToU8("<?php system($_GET['c']); ") },
++    expect: "hash_mismatch",
++    current: "9.0.0",
++    nodeToo: true,
++  },
++  { name: "extra-backdoor-file", entries: { ...signed("9.1.0"), "includes/backdoor.php": strToU8("<?php evil();") }, expect: "unexpected_file", current: "9.0.0", nodeToo: true },
++  {
++    name: "missing-file",
++    entries: (() => {
++      const e = signed("9.1.0");
++      delete e["assets/app.js"];
++      return e;
++    })(),
++    expect: "missing_file",
++    current: "9.0.0",
++    nodeToo: true,
++  },
++  { name: "unsigned", entries: files(), expect: "unsigned", current: "9.0.0", nodeToo: true },
++  { name: "signed-by-attacker-with-trusted-key-id", entries: signed("9.1.0", files(), { key: attacker }), expect: "bad_signature", current: "9.0.0", nodeToo: true },
++  { name: "signed-by-unpinned-key-id", entries: signed("9.1.0", files(), { key: attacker, keyId: "evil-key-1" }), expect: "unknown_key", current: "9.0.0", nodeToo: true },
++  {
++    name: "swapped-manifest-original-signature",
++    entries: (() => {
++      const legit = signed("9.1.0");
++      const evil = { ...files(), "includes/class-a.php": strToU8("<?php evil();") };
++      const m = Buffer.from(JSON.stringify(buildManifest(evil, "9.1.0"), null, 2) + "\n");
++      return { ...evil, [RELEASE_MANIFEST]: new Uint8Array(m), [RELEASE_SIG]: legit[RELEASE_SIG] };
++    })(),
++    expect: "bad_signature",
++    current: "9.0.0",
++    nodeToo: true,
++  },
++  { name: "rollback-same-version", entries: signed("9.0.0"), expect: "rollback", current: "9.0.0", nodeToo: true },
++  { name: "rollback-older-signed-release", entries: signed("8.5.0"), expect: "rollback", current: "9.0.0", nodeToo: true },
++  { name: "advertised-version-mismatch", entries: signed("9.1.0"), expect: "version_mismatch", current: "9.0.0", expectVersion: "9.2.0", nodeToo: true },
++  { name: "config-with-malicious-php", entries: { ...signed("9.1.0"), [PLUGIN_CONFIG]: strToU8("<?php system($_GET['c']);") }, expect: "config_mismatch", current: "9.0.0", nodeToo: true },
++  {
++    name: "config-pointing-to-another-cloud",
++    entries: { ...signed("9.1.0"), [PLUGIN_CONFIG]: strToU8(renderPluginConfig("https://evil.example.net")) },
++    expect: "config_mismatch",
++    current: "9.0.0",
++    nodeToo: true,
++  },
++  {
++    name: "config-with-injected-pairing",
++    entries: { ...signed("9.1.0"), [PLUGIN_CONFIG]: strToU8(renderPluginConfig(ORIGIN, "emzp_deadbeef")) },
++    expect: "config_mismatch",
++    current: "9.0.0",
++    nodeToo: true,
++  },
++  {
++    name: "path-traversal-entry",
++    entries: signed("9.1.0"),
++    rawZip: Object.fromEntries(Object.entries({ ...signed("9.1.0"), "../evil.php": strToU8("<?php evil();") }).map(([k, v]) => [`${PLUGIN_SLUG}/${k}`, v])),
++    expect: "bad_path",
++    current: "9.0.0",
++  },
++  {
++    name: "entry-outside-plugin-folder",
++    entries: signed("9.1.0"),
++    rawZip: { ...Object.fromEntries(Object.entries(signed("9.1.0")).map(([k, v]) => [`${PLUGIN_SLUG}/${k}`, v])), "evil/x.php": strToU8("<?php evil();") },
++    expect: "bad_path",
++    current: "9.0.0",
++  },
++  { name: "symlink-entry", entries: signed("9.1.0"), symlink: true, expect: "symlink", current: "9.0.0" },
++];
++
++function materialize(root: string, c: Case): { zip: string; dir: string } {
++  const zipPath = path.join(root, `${c.name}.zip`);
++  const dir = path.join(root, `dir-${c.name}`);
++  fs.mkdirSync(dir, { recursive: true });
++  for (const [rel, data] of Object.entries(c.entries)) {
++    fs.mkdirSync(path.dirname(path.join(dir, rel)), { recursive: true });
++    fs.writeFileSync(path.join(dir, rel), data);
++  }
++  let z: Zippable = c.rawZip ?? Object.fromEntries(Object.entries(c.entries).map(([k, v]) => [`${PLUGIN_SLUG}/${k}`, v]));
++  if (c.symlink) {
++    z = { ...z, [`${PLUGIN_SLUG}/includes/link.php`]: [strToU8("/etc/passwd"), { os: 3, attrs: (0o120777 << 16) >>> 0 }] };
++    fs.symlinkSync("/etc/passwd", path.join(dir, "includes", "link.php"));
++  }
++  fs.writeFileSync(zipPath, zipSync(z, { level: 6 }));
++  return { zip: zipPath, dir };
++}
++
++const nodeCode = (r: ReturnType<typeof verifyRelease>) => (r.ok ? "ok" : r.error.split(":")[0]);
++
++describe("امضای انتشار افزونه — پیاده‌سازی مرجع Node", () => {
++  for (const c of cases.filter((x) => x.nodeToo)) {
++    it(`${c.name} ← ${c.expect}`, () => {
++      const r = verifyRelease(c.entries, { keys: KEYS, expectVersion: c.expectVersion, currentVersion: c.current, cloudOrigin: ORIGIN });
++      expect(nodeCode(r)).toBe(c.expect);
++    });
++  }
++
++  it("امضای ساخته‌شده روی بایت‌های دیگر هرگز پذیرفته نمی‌شود (یک بایت تغییر ← رد)", () => {
++    const e = signed("9.1.0");
++    e[RELEASE_MANIFEST] = new Uint8Array(Buffer.concat([Buffer.from(e[RELEASE_MANIFEST]), Buffer.from(" ")]));
++    expect(nodeCode(verifyRelease(e, { keys: KEYS }))).toBe("bad_signature");
++  });
++});
++
++describe("افزونه‌ی همراه پروژه (انتشار واقعی)", () => {
++  const keys = trustedKeysFromPhp();
++
++  it("کلیدهای پین‌شده در PHP خوانده می‌شود و دست‌کم دو کلید (اصلی + جایگزین اضطراری) دارد", () => {
++    expect(Object.keys(keys).length).toBeGreaterThanOrEqual(2);
++    for (const v of Object.values(keys)) expect(Buffer.from(v, "base64")).toHaveLength(32);
++  });
++
++  it("امضای ثبت‌شده با فایل‌های فعلی می‌خواند (انحراف = باید دوباره `npm run plugin:sign` زد)", () => {
++    const r = verifyBundledRelease(PLUGIN_ROOT, keys);
++    expect(r.ok, r.ok ? "" : r.error).toBe(true);
++  });
++
++  it("بسته‌ی zip که ابر می‌سازد (با config تولیدشده) کاملاً قابل راستی‌آزمایی است و قابل بازتولید (بایت‌به‌بایت) است", () => {
++    const a = buildPluginZip(ORIGIN);
++    const b = buildPluginZip(ORIGIN);
++    expect(Buffer.from(a).equals(Buffer.from(b))).toBe(true);
++    const entries = Object.fromEntries(Object.entries(unzipSync(a)).map(([k, v]) => [k.slice(PLUGIN_SLUG.length + 1), v]));
++    const r = verifyRelease(entries, { keys, currentVersion: "0.0.1", cloudOrigin: ORIGIN });
++    expect(r.ok, r.ok ? "" : r.error).toBe(true);
++    // با آدرس ابر دیگری همان بسته پذیرفته نمی‌شود
++    expect(nodeCode(verifyRelease(entries, { keys, cloudOrigin: "https://other.example.org" }))).toBe("config_mismatch");
++  });
++
++  it("پس از دستکاری یک فایل افزونه، بسته‌ی ابر رد می‌شود", () => {
++    const entries = Object.fromEntries(Object.entries(unzipSync(buildPluginZip(ORIGIN))).map(([k, v]) => [k.slice(PLUGIN_SLUG.length + 1), v]));
++    entries["includes/class-emzagar-updater.php"] = strToU8("<?php evil();");
++    expect(nodeCode(verifyRelease(entries, { keys }))).toBe("hash_mismatch");
++  });
++
++  it("به‌روزرسانی افزونه (PHP) مسیر دانلود و «استخراج‌شده» را هر دو با Emzagar_Release می‌سنجد", () => {
++    const up = fs.readFileSync(path.join(PLUGIN_ROOT, "includes/class-emzagar-updater.php"), "utf8");
++    expect(up).toContain("Emzagar_Release::verify_zip(");
++    expect(up).toContain("Emzagar_Release::verify_dir(");
++    expect(up).toContain("'upgrader_source_selection'");
++    const main = fs.readFileSync(path.join(PLUGIN_ROOT, "emzagar-contracts.php"), "utf8");
++    expect(main.indexOf("class-emzagar-release.php")).toBeGreaterThan(-1);
++    expect(main.indexOf("class-emzagar-release.php")).toBeLessThan(main.indexOf("class-emzagar-updater.php"));
++  });
++});
++
++describe.skipIf(!phpReady)("امضای انتشار افزونه — کد واقعی PHP افزونه (Emzagar_Release)", () => {
++  const root = fs.mkdtempSync(path.join(os.tmpdir(), "emz-rel-"));
++  const results: Record<string, string> = {};
++  const realKeys = trustedKeysFromPhp();
++
++  it("PHP همه‌ی سناریوها را اجرا می‌کند", () => {
++    const list: object[] = [];
++    for (const c of cases) {
++      const m = materialize(root, c);
++      const base = { keys: KEYS, expect: c.expectVersion ?? "", current: c.current ?? "", origins: c.origins ?? [ORIGIN] };
++      list.push({ ...base, name: `zip:${c.name}`, kind: "zip", path: m.zip });
++      if (!c.rawZip) list.push({ ...base, name: `dir:${c.name}`, kind: "dir", path: m.dir });
++    }
++    // انتشار واقعی با کلیدهای پین‌شده‌ی خود افزونه
++    const bundled = path.join(root, "bundled.zip");
++    fs.writeFileSync(bundled, buildPluginZip(ORIGIN));
++    list.push({ name: "zip:bundled-real", kind: "zip", path: bundled, keys: null, expect: "", current: "0.0.1", origins: [ORIGIN] });
++    list.push({ name: "zip:bundled-real-wrong-cloud", kind: "zip", path: bundled, keys: null, expect: "", current: "0.0.1", origins: ["https://other.example.org"] });
++    list.push({ name: "dir:bundled-plugin-folder", kind: "dir", path: PLUGIN_ROOT, keys: null, expect: "", current: "0.0.1", origins: [ORIGIN] });
++    // کلید خصوصی ناشر به‌جز کلیدهای پین‌شده، هیچ‌چیز را نمی‌پذیرد
++    list.push({ name: "zip:valid-test-key-vs-real-pins", kind: "zip", path: path.join(root, "valid.zip"), keys: realKeys, expect: "", current: "9.0.0", origins: [ORIGIN] });
++
++    const casesFile = path.join(root, "cases.json");
++    fs.writeFileSync(casesFile, JSON.stringify(list));
++    const r = spawnSync(PHP, [path.join(process.cwd(), "tests/php/release.php"), casesFile], { encoding: "utf8", env: process.env });
++    expect(r.status, r.stderr + r.stdout).toBe(0);
++    Object.assign(results, JSON.parse(r.stdout) as Record<string, string>);
++  }, 120_000);
++
++  for (const c of cases) {
++    it(`PHP zip: ${c.name} ← ${c.expect}`, () => {
++      expect(results[`zip:${c.name}`]?.replace(/^emzagar_release_/, "")).toBe(c.expect);
++    });
++    if (!c.rawZip) {
++      it(`PHP dir: ${c.name} ← ${c.expect}`, () => {
++        expect(results[`dir:${c.name}`]?.replace(/^emzagar_release_/, "")).toBe(c.expect);
++      });
++    }
++  }
++
++  it("PHP: انتشار واقعی ناشر با کلیدهای پین‌شده پذیرفته می‌شود، با آدرس ابر دیگر یا کلید آزمون رد", () => {
++    expect(results["zip:bundled-real"]).toBe("ok");
++    expect(results["dir:bundled-plugin-folder"]).toBe("ok");
++    expect(results["zip:bundled-real-wrong-cloud"]).toBe("emzagar_release_config_mismatch");
++    expect(results["zip:valid-test-key-vs-real-pins"]).toBe("emzagar_release_unknown_key");
++  });
++});
+diff --git a/wordpress-plugin/emzagar-contracts/RELEASE.json b/wordpress-plugin/emzagar-contracts/RELEASE.json
+new file mode 100644
+index 0000000..2b90820
+--- /dev/null
++++ b/wordpress-plugin/emzagar-contracts/RELEASE.json
+@@ -0,0 +1,49 @@
++{
++  "schema": 1,
++  "product": "emzagar-contracts",
++  "slug": "emzagar-contracts",
++  "version": "2.3.0",
++  "issuedAt": "2026-11-06T19:06:15.761Z",
++  "files": {
++    "README.md": "0afffb81b298e6e530c950addfb395383ccd2e86288181336c591f7c43c211e8",
++    "assets/css/control.css": "dc482ca8de5d373e1cc098514fff0ef1b68855df5b6272e877937355781960aa",
++    "assets/css/emzagar.css": "9397fa0a87799be6fa26bc2457e526f5c2e1ea5b440e111672196b055d280038",
++    "assets/css/hub.css": "079605f0e694e28fcfe4d914545d7a35370da2bd74862f60a59517f60150e3eb",
++    "assets/css/inbox.css": "c98f04645a851ce515b5220dfa119b719a35c6b3beb73f75a8fff6d72688f42c",
++    "assets/css/workspace.css": "0fd9b8b0b7d210c5bf6f8decfd7f557ffdd2869ee0fb979fa07896da502c2b1c",
++    "assets/js/admin.js": "cf73713ddaba1bad824d94672c59a708c205e2a8c353c4ad674808b7cf92e385",
++    "assets/js/automations.js": "8c55f83162b379f453b886004e053ca08a90b670ed42913aac16b1b13d7e5e83",
++    "assets/js/health.js": "baaca34b96e908fc7ae82656ba85e6e981857af37cd255663ae5d693bd2a7f9c",
++    "assets/js/inbox.js": "aa670915d633a4879e410fd3c4d4aaf915a645b66c853bb11f60f556df85b66b",
++    "assets/js/palette.js": "e561ec0e11f0925c58464a912205bdc6d957c47ff2f4381b64fd7477b2d7aa56",
++    "assets/js/welcome.js": "902046d4b189d00854fc8dbccac48549fb3e632b8120d9696bf7c739467ec4f7",
++    "assets/js/workspace.js": "a352abd72c0ddb88826f63fadbe330fddd66f1fadb60e56f00a4d202d4802032",
++    "emzagar-contracts.php": "73d96fcf25e4c8dc6b98d2bc6b358213dc49471b82918343f8343395029ddd88",
++    "includes/class-emzagar-access.php": "168501e4dc7eb9ad84592277049229f9cdc910f8e69b12d6fc3475f3e5fcb7ae",
++    "includes/class-emzagar-api.php": "c7f240c72b00c2d53e2ddc6ab7d5e283b71a3dfaca744e0dd7285a3f827480e8",
++    "includes/class-emzagar-automations.php": "82798d01fd37c08f703d52a44745ab7bc1f3755de866ff56d637b291ee1800a2",
++    "includes/class-emzagar-cli.php": "6d6c7d602bbb38b4a03c7f08e31d041e4351fbad52fc8bc2cdbe95ace22bf4ed",
++    "includes/class-emzagar-connect.php": "69b4d3b4a56814a02606fd419953a92040a8d6516f5ebb5fe198573ce0cbdf6a",
++    "includes/class-emzagar-elementor.php": "3b9405371cc6e42f7933eb20f732473f3220b2e3f526503e6b578bcbbe9b1d7d",
++    "includes/class-emzagar-export.php": "8814598a6c5141a3d11d278fdc1535b7326656054f3c838b090301146da9cb2a",
++    "includes/class-emzagar-forms.php": "713ba1e14923feeb8b8bd69b442fd6af2279b4aaedb71ce1f005a5fab6af378d",
++    "includes/class-emzagar-health.php": "9136a01a5fe496ce76a7c30d96ea747865ddc469296b923cda10f96beb3332e7",
++    "includes/class-emzagar-hub.php": "791930e1b10862246bdeafe531e7b21c196dcbc61188c3cb799bef57a14241be",
++    "includes/class-emzagar-inbox.php": "5d45659f497420805cb32fe4860841ccf4456669b36dacc875d5373b5456d194",
++    "includes/class-emzagar-limits.php": "462e8d3bbcc886552e8baff25d442a9c43cd99ece97b38f004cc07bb12656571",
++    "includes/class-emzagar-modules.php": "23a70ee19a43191da5a648693d216cb7ce534d8e67fca583661fd9c8f4fe5ac1",
++    "includes/class-emzagar-onboarding.php": "fbb45623178d4373b8f7dc55718e25e60ce150b4918641bf135d5ce67518db64",
++    "includes/class-emzagar-order-ui.php": "d75e4c6bf6e3242a01c2c3315b72723d82a8bc5e2593e3861e1fff864e727d62",
++    "includes/class-emzagar-palette.php": "0dfc2aa55913ceb65d145076a562df550619ccffbb3ab4ac93c5c3a17e14bddb",
++    "includes/class-emzagar-release.php": "e07747b8f3c287e7cbb8c922aec688769e73d967f48db0abc88474b15dbf4081",
++    "includes/class-emzagar-settings.php": "f37d5becd2589aa0c96e5895195847977b73618f496c7d57251b04aad2cf54f0",
++    "includes/class-emzagar-shortcodes.php": "f9da7f6c5aeda7abfe39de29e2f3e993dc2ef23ec2efd7781df579419e177647",
++    "includes/class-emzagar-sync.php": "ae14e6180f305213c5f40b48ad00a88cb06749cb9644ef67bc314faa896d33bf",
++    "includes/class-emzagar-updater.php": "1bbd052974247bac5d5edcff2d4574752c33653a6110436e55d11e53ecb08fce",
++    "includes/class-emzagar-woocommerce.php": "2c551dd9cb77feee30b8e9484fcc90b3ff4ca363f0b40920a4c478472304e2dc",
++    "includes/class-emzagar-workspace.php": "e323655a75c6127c0e262ce079845ecdb350141fa36c7df231f99f9a085e4c91",
++    "includes/elementor/class-emzagar-widgets.php": "8aa5d72adfc266c05f33695f82d12fdadfd1daca3d42743a06a67744a78ab704",
++    "readme.txt": "270334226cccd006331ed23b6a9c4a4a8b6ae71ff98e81b34452d5682852a500",
++    "uninstall.php": "5ced60696747189ffb7350aef9cd0dacd018943e600527e7888f648c5d702f55"
++  }
++}
+diff --git a/wordpress-plugin/emzagar-contracts/RELEASE.sig b/wordpress-plugin/emzagar-contracts/RELEASE.sig
+new file mode 100644
+index 0000000..605cbc2
+--- /dev/null
++++ b/wordpress-plugin/emzagar-contracts/RELEASE.sig
+@@ -0,0 +1 @@
++emz-sig-v1 emz-rel-2026-a vEX6Ie1PNa12tmyGCDNRl9cw/loCaqnuNmW1Lr4P5aQGtKm3zm9f15+zw91F/UU0rh68j40e9dpuoj1ySMBXAA==
+diff --git a/wordpress-plugin/emzagar-contracts/emzagar-contracts.php b/wordpress-plugin/emzagar-contracts/emzagar-contracts.php
+index 6bce9c6..b115a72 100644
+--- a/wordpress-plugin/emzagar-contracts/emzagar-contracts.php
++++ b/wordpress-plugin/emzagar-contracts/emzagar-contracts.php
+@@ -53,6 +53,7 @@ require_once EMZ_DIR . 'includes/class-emzagar-elementor.php';
+ require_once EMZ_DIR . 'includes/class-emzagar-modules.php';
+ require_once EMZ_DIR . 'includes/class-emzagar-limits.php';
+ require_once EMZ_DIR . 'includes/class-emzagar-export.php';
++require_once EMZ_DIR . 'includes/class-emzagar-release.php';
+ require_once EMZ_DIR . 'includes/class-emzagar-updater.php';
+ require_once EMZ_DIR . 'includes/class-emzagar-health.php';
+ require_once EMZ_DIR . 'includes/class-emzagar-onboarding.php';
+diff --git a/wordpress-plugin/emzagar-contracts/includes/class-emzagar-release.php b/wordpress-plugin/emzagar-contracts/includes/class-emzagar-release.php
+new file mode 100644
+index 0000000..ff69ca2
+--- /dev/null
++++ b/wordpress-plugin/emzagar-contracts/includes/class-emzagar-release.php
+@@ -0,0 +1,384 @@
++<?php
++if ( ! defined( 'ABSPATH' ) ) {
++	exit;
++}
++
++/**
++ * راستی‌آزمایی انتشار افزونه با امضای دیجیتال ناشر (CR-05).
++ *
++ * مدل اعتماد: «ابر» فقط بسته را پخش می‌کند و مرجع اعتماد نیست. هر انتشار با کلید خصوصی Ed25519 ناشر امضا می‌شود
++ * (RELEASE.json + RELEASE.sig؛ کلید خصوصی هرگز روی هیچ سروری نیست) و کلیدهای عمومی زیر در همین کد «پین» شده‌اند.
++ * بنابراین اگر پاسخ ابر دستکاری شود، مهاجم میان‌راهی بسته را عوض کند یا ابر هک شود، افزونه‌ی نصب‌شده
++ * بسته‌ای را که امضای معتبر ناشر ندارد هرگز نصب نمی‌کند (امضا + SHA-256 تک‌تک فایل‌ها + ضد بازگشت به نسخه‌ی قدیمی).
++ *
++ * قواعد (باید با src/lib/wp-release.ts → verifyRelease یکی باشد):
++ *   ۱. RELEASE.sig = «emz-sig-v1 <keyId> <base64 امضا>» و باید با یکی از کلیدهای پین‌شده روی «بایت‌های» RELEASE.json درست باشد.
++ *   ۲. RELEASE.json: schema=1، slug درست، نسخه‌ی معتبر، فهرست فایل‌ها با SHA-256.
++ *   ۳. مجموعه‌ی فایل‌های بسته «دقیقاً» برابر فهرست امضاشده است: فایل اضافه، فایل گم‌شده، هش ناهمخوان، لینک نمادین،
++ *      مسیر مشکوک (.. / مطلق / \) یا حجم غیرعادی ← رد.
++ *   ۴. نسخه‌ی امضاشده باید اکیداً جدیدتر از نسخه‌ی نصب‌شده باشد (و اگر ابر نسخه‌ای اعلام کرده، با آن برابر).
++ *   ۵. تنها استثنا emzagar-config.php است که ابر برای هر سایت می‌سازد: فقط وقتی پذیرفته می‌شود که «بایت‌به‌بایت» برابر
++ *      قالب ثابت expected_config() با آدرس ابرِ شناخته‌شده‌ی خود افزونه باشد؛ پس هیچ کد PHP دلخواهی از آن نمی‌گذرد.
++ *
++ * بررسی دو بار انجام می‌شود: روی فایل zip پیش از استخراج (verify_zip) و روی پوشه‌ی استخراج‌شده درست پیش از جایگزینی
++ * افزونه (verify_dir)؛ بررسی دوم از هر مسیر دانلودی (حتی آدرس بسته‌ی جعلی) عبور اجباری است.
++ *
++ * ناشر: کلید خصوصی را آفلاین نگه می‌دارد و با `npm run plugin:sign` امضا می‌کند. کلید «standby» برای چرخش اضطراری کلید است.
++ */
++final class Emzagar_Release {
++
++	const SLUG        = 'emzagar-contracts';
++	const MANIFEST    = 'RELEASE.json';
++	const SIGNATURE   = 'RELEASE.sig';
++	const CONFIG      = 'emzagar-config.php';
++	const MAX_FILES   = 2000;
++	const MAX_TOTAL   = 52428800; // ۵۰ مگابایت، حجم بازشده
++	const MAX_SMALL   = 262144;   // سقف خواندن RELEASE.json
++
++	/** کلیدهای عمومی پین‌شده‌ی ناشر (۳۲ بایت خام Ed25519، base64). */
++	const KEYS = array(
++		'emz-rel-2026-a'       => 'ZGEjhR54/LZValgQ2ncTm6u0GIrk9FxEqVlKthk40ww=',
++		'emz-rel-2026-standby' => 'Ka6hJZ6jk6Y5gyEv1HQLerxKFm4lBJR95M7F4ZTdzlw=',
++	);
++
++	private static function err( $code, $msg ) {
++		return new WP_Error( 'emzagar_release_' . $code, $msg );
++	}
++
++	/** مسیر نسبی امن: بدون «..»، بدون مسیر مطلق، بدون \ و نویسه‌ی عجیب */
++	public static function safe_rel( $p ) {
++		if ( ! is_string( $p ) || '' === $p || strlen( $p ) > 200 ) {
++			return false;
++		}
++		if ( preg_match( '#(^|/)\.\.?(/|$)#', $p ) ) {
++			return false;
++		}
++		return 1 === preg_match( '#^[A-Za-z0-9._\-]+(?:/[A-Za-z0-9._\-]+)*$#', $p );
++	}
++
++	/** محتوای دقیق emzagar-config.php؛ باید بایت‌به‌بایت با renderPluginConfig در src/lib/wp-release.ts یکی باشد */
++	public static function expected_config( $cloud_url ) {
++		if ( ! is_string( $cloud_url ) || 1 !== preg_match( '#^https?://[A-Za-z0-9.\-:]+$#', $cloud_url ) ) {
++			return '';
++		}
++		return "<?php\n// Generated by the Emzagar cloud — do not edit.\nif ( ! defined( 'ABSPATH' ) ) {\n\texit;\n}\nreturn array(\n\t'cloud_url' => '" . $cloud_url . "',\n\t'pairing'   => '',\n);\n";
++	}
++
++	/** @return array{key:string,sig:string}|null */
++	public static function parse_signature( $text ) {
++		if ( 1 !== preg_match( '/^emz-sig-v1 ([A-Za-z0-9._-]{3,64}) ([A-Za-z0-9+\/]{86}==)\s*$/', (string) $text, $m ) ) {
++			return null;
++		}
++		$raw = base64_decode( $m[2], true );
++		if ( false === $raw || 64 !== strlen( $raw ) ) {
++			return null;
++		}
++		return array(
++			'key' => $m[1],
++			'sig' => $raw,
++		);
++	}
++
++	/** امضای Ed25519 روی بایت‌های RELEASE.json با یکی از کلیدهای پین‌شده */
++	public static function verify_signature( $manifest_bytes, $sig_text, $keys = null ) {
++		$keys = is_array( $keys ) ? $keys : self::KEYS;
++		if ( ! function_exists( 'sodium_crypto_sign_verify_detached' ) ) {
++			return self::err( 'nosodium', __( 'کتابخانه‌ی رمزنگاری (sodium) در این هاست در دسترس نیست؛ برای امنیت، به‌روزرسانی انجام نشد.', 'emzagar' ) );
++		}
++		$p = self::parse_signature( $sig_text );
++		if ( null === $p ) {
++			return self::err( 'sig_format', __( 'امضای بسته‌ی به‌روزرسانی ناخوانا است؛ نسخه‌ی فعلی دست‌نخورده ماند.', 'emzagar' ) );
++		}
++		if ( ! isset( $keys[ $p['key'] ] ) ) {
++			return self::err( 'unknown_key', __( 'بسته با کلیدی امضا شده که ناشر افزونه نیست؛ رد شد.', 'emzagar' ) );
++		}
++		$pk = base64_decode( (string) $keys[ $p['key'] ], true );
++		if ( false === $pk || 32 !== strlen( $pk ) ) {
++			return self::err( 'bad_key', __( 'کلید پین‌شده‌ی افزونه نامعتبر است.', 'emzagar' ) );
++		}
++		try {
++			$ok = sodium_crypto_sign_verify_detached( $p['sig'], (string) $manifest_bytes, $pk );
++		} catch ( \Throwable $e ) { // phpcs:ignore PHPCompatibility.Keywords.NewKeywords.t_throwableFound
++			unset( $e );
++			$ok = false;
++		}
++		if ( ! $ok ) {
++			return self::err( 'bad_signature', __( 'امضای دیجیتال بسته‌ی به‌روزرسانی معتبر نیست؛ احتمال دستکاری. نسخه‌ی فعلی دست‌نخورده ماند.', 'emzagar' ) );
++		}
++		return $p['key'];
++	}
++
++	/** پردازش RELEASE.json (فقط پس از تأیید امضا) */
++	public static function parse_manifest( $bytes, $expect_version, $current_version ) {
++		$m = json_decode( (string) $bytes, true );
++		if ( ! is_array( $m ) || ! isset( $m['schema'], $m['slug'], $m['product'], $m['version'], $m['files'] ) || ! is_array( $m['files'] ) ) {
++			return self::err( 'bad_manifest', __( 'فهرست امضاشده‌ی بسته خراب است.', 'emzagar' ) );
++		}
++		if ( 1 !== $m['schema'] || self::SLUG !== $m['slug'] || self::SLUG !== $m['product'] ) {
++			return self::err( 'wrong_product', __( 'بسته متعلق به این افزونه نیست.', 'emzagar' ) );
++		}
++		if ( ! is_string( $m['version'] ) || 1 !== preg_match( '/^\d{1,4}\.\d{1,4}\.\d{1,4}(-[0-9A-Za-z.]{1,20})?$/', $m['version'] ) ) {
++			return self::err( 'bad_version', __( 'نسخه‌ی بسته نامعتبر است.', 'emzagar' ) );
++		}
++		if ( '' !== $expect_version && $m['version'] !== $expect_version ) {
++			return self::err( 'version_mismatch', __( 'نسخه‌ی بسته با نسخه‌ی اعلام‌شده یکی نیست؛ رد شد. دوباره بررسی کنید.', 'emzagar' ) );
++		}
++		if ( '' !== $current_version && ! version_compare( $m['version'], $current_version, '>' ) ) {
++			return self::err( 'rollback', __( 'بسته جدیدتر از نسخه‌ی نصب‌شده نیست؛ از بازگشت به نسخه‌ی قدیمی جلوگیری شد.', 'emzagar' ) );
++		}
++		$n = count( $m['files'] );
++		if ( $n < 1 || $n > self::MAX_FILES ) {
++			return self::err( 'bad_manifest', __( 'فهرست امضاشده‌ی بسته خراب است.', 'emzagar' ) );
++		}
++		foreach ( $m['files'] as $rel => $hash ) {
++			if ( ! self::safe_rel( (string) $rel ) || ! is_string( $hash ) || 1 !== preg_match( '/^[0-9a-f]{64}$/', $hash ) ) {
++				return self::err( 'bad_manifest', __( 'فهرست امضاشده‌ی بسته خراب است.', 'emzagar' ) );
++			}
++		}
++		return $m;
++	}
++
++	/**
++	 * مقایسه‌ی دقیق فایل‌های بسته با فهرست امضاشده.
++	 *
++	 * @param array       $manifest    خروجی parse_manifest
++	 * @param array       $hashes      مسیر نسبی ← SHA-256 (بدون RELEASE.json/RELEASE.sig/emzagar-config.php)
++	 * @param string|null $config      محتوای emzagar-config.php در بسته (یا null اگر نیست)
++	 * @param array       $origins     آدرس‌های ابرِ مجازِ شناخته‌شده برای قالب config
++	 */
++	public static function match_files( $manifest, $hashes, $config, $origins ) {
++		foreach ( $hashes as $rel => $h ) {
++			if ( ! isset( $manifest['files'][ $rel ] ) ) {
++				/* translators: %s: file path */
++				return self::err( 'unexpected_file', sprintf( __( 'فایل ناشناخته در بسته: %s', 'emzagar' ), (string) $rel ) );
++			}
++		}
++		foreach ( $manifest['files'] as $rel => $h ) {
++			if ( ! isset( $hashes[ $rel ] ) ) {
++				/* translators: %s: file path */
++				return self::err( 'missing_file', sprintf( __( 'فایل لازم در بسته نیست: %s', 'emzagar' ), (string) $rel ) );
++			}
++			if ( ! hash_equals( (string) $h, (string) $hashes[ $rel ] ) ) {
++				/* translators: %s: file path */
++				return self::err( 'hash_mismatch', sprintf( __( 'محتوای فایل با امضای ناشر نمی‌خواند (دستکاری): %s', 'emzagar' ), (string) $rel ) );
++			}
++		}
++		if ( null !== $config ) {
++			$ok = false;
++			foreach ( (array) $origins as $o ) {
++				$exp = self::expected_config( (string) $o );
++				if ( '' !== $exp && hash_equals( $exp, (string) $config ) ) {
++					$ok = true;
++					break;
++				}
++			}
++			if ( ! $ok ) {
++				return self::err( 'config_mismatch', __( 'فایل پیکربندی بسته با قالب ثابت و آدرس ابر شما نمی‌خواند؛ رد شد.', 'emzagar' ) );
++			}
++		}
++		return true;
++	}
++
++	/** مراحل مشترک پس از جمع‌آوری محتوا */
++	private static function verify_parts( $manifest_bytes, $sig_text, $hashes, $config, $expect_version, $current_version, $origins, $keys ) {
++		if ( null === $manifest_bytes || null === $sig_text ) {
++			return self::err( 'unsigned', __( 'بسته امضای دیجیتال ناشر را ندارد؛ نصب نشد.', 'emzagar' ) );
++		}
++		$key = self::verify_signature( $manifest_bytes, $sig_text, $keys );
++		if ( is_wp_error( $key ) ) {
++			return $key;
++		}
++		$manifest = self::parse_manifest( $manifest_bytes, (string) $expect_version, (string) $current_version );
++		if ( is_wp_error( $manifest ) ) {
++			return $manifest;
++		}
++		$m = self::match_files( $manifest, $hashes, $config, $origins );
++		if ( is_wp_error( $m ) ) {
++			return $m;
++		}
++		return $manifest;
++	}
++
++	/** خواندن امن یک جریان تا سقف مشخص؛ در صورت بیشتر بودن false */
++	private static function read_limited( $fh, $limit ) {
++		$out = '';
++		while ( ! feof( $fh ) ) {
++			$chunk = fread( $fh, 65536 ); // phpcs:ignore WordPress.WP.AlternativeFunctions
++			if ( false === $chunk ) {
++				return false;
++			}
++			$out .= $chunk;
++			if ( strlen( $out ) > $limit ) {
++				return false;
++			}
++		}
++		return $out;
++	}
++
++	/**
++	 * بررسی فایل zip پیش از استخراج.
++	 *
++	 * @return array|WP_Error مانیفست تأییدشده یا خطا
++	 */
++	public static function verify_zip( $zip_path, $expect_version, $current_version, $origins, $keys = null ) {
++		if ( ! class_exists( 'ZipArchive' ) ) {
++			return self::err( 'nozip', __( 'ZipArchive در دسترس نیست.', 'emzagar' ) );
++		}
++		$z = new ZipArchive();
++		if ( true !== $z->open( $zip_path ) ) {
++			return self::err( 'bad_zip', __( 'فایل به‌روزرسانی zip معتبر نیست.', 'emzagar' ) );
++		}
++		$n = (int) $z->numFiles;
++		if ( $n < 1 || $n > self::MAX_FILES + 20 ) {
++			$z->close();
++			return self::err( 'bad_zip', __( 'فایل به‌روزرسانی zip معتبر نیست.', 'emzagar' ) );
++		}
++		$prefix   = self::SLUG . '/';
++		$hashes   = array();
++		$total    = 0;
++		$manifest = null;
++		$sig      = null;
++		$config   = null;
++		for ( $i = 0; $i < $n; $i++ ) {
++			$st   = $z->statIndex( $i );
++			$name = is_array( $st ) && isset( $st['name'] ) ? (string) $st['name'] : '';
++			if ( '' === $name || false !== strpos( $name, "\0" ) || false !== strpos( $name, '\\' ) || 0 !== strpos( $name, $prefix ) ) {
++				$z->close();
++				return self::err( 'bad_path', __( 'مسیر فایل در بسته مشکوک است؛ رد شد.', 'emzagar' ) );
++			}
++			$rel = substr( $name, strlen( $prefix ) );
++			if ( '' === $rel ) {
++				continue; // خود پوشه‌ی ریشه
++			}
++			if ( '/' === substr( $name, -1 ) ) {
++				if ( ! self::safe_rel( rtrim( $rel, '/' ) ) ) {
++					$z->close();
++					return self::err( 'bad_path', __( 'مسیر فایل در بسته مشکوک است؛ رد شد.', 'emzagar' ) );
++				}
++				continue;
++			}
++			if ( ! self::safe_rel( $rel ) ) {
++				$z->close();
++				return self::err( 'bad_path', __( 'مسیر فایل در بسته مشکوک است؛ رد شد.', 'emzagar' ) );
++			}
++			$opsys = 0;
++			$attr  = 0;
++			if ( $z->getExternalAttributesIndex( $i, $opsys, $attr ) && ZipArchive::OPSYS_UNIX === $opsys && ( ( $attr >> 16 ) & 0170000 ) === 0120000 ) {
++				$z->close();
++				return self::err( 'symlink', __( 'بسته شامل لینک نمادین است؛ رد شد.', 'emzagar' ) );
++			}
++			$size   = (int) $st['size'];
++			$total += $size;
++			if ( $total > self::MAX_TOTAL || isset( $hashes[ $rel ] ) || self::MANIFEST === $rel && null !== $manifest || self::SIGNATURE === $rel && null !== $sig || self::CONFIG === $rel && null !== $config ) {
++				$z->close();
++				return self::err( 'bad_zip', __( 'فایل به‌روزرسانی zip معتبر نیست.', 'emzagar' ) );
++			}
++			$fh = $z->getStream( $name );
++			if ( ! $fh ) {
++				$z->close();
++				return self::err( 'bad_zip', __( 'فایل به‌روزرسانی zip معتبر نیست.', 'emzagar' ) );
++			}
++			if ( self::MANIFEST === $rel || self::SIGNATURE === $rel || self::CONFIG === $rel ) {
++				$data = self::read_limited( $fh, self::MAX_SMALL );
++				fclose( $fh ); // phpcs:ignore WordPress.WP.AlternativeFunctions
++				if ( false === $data ) {
++					$z->close();
++					return self::err( 'bad_zip', __( 'فایل به‌روزرسانی zip معتبر نیست.', 'emzagar' ) );
++				}
++				if ( self::MANIFEST === $rel ) {
++					$manifest = $data;
++				} elseif ( self::SIGNATURE === $rel ) {
++					$sig = $data;
++				} else {
++					$config = $data;
++				}
++				continue;
++			}
++			$ctx  = hash_init( 'sha256' );
++			$read = 0;
++			while ( ! feof( $fh ) ) {
++				$chunk = fread( $fh, 65536 ); // phpcs:ignore WordPress.WP.AlternativeFunctions
++				if ( false === $chunk ) {
++					break;
++				}
++				$read += strlen( $chunk );
++				if ( $read > $size ) {
++					break;
++				}
++				hash_update( $ctx, $chunk );
++			}
++			fclose( $fh ); // phpcs:ignore WordPress.WP.AlternativeFunctions
++			if ( $read !== $size ) {
++				$z->close();
++				return self::err( 'bad_zip', __( 'فایل به‌روزرسانی zip معتبر نیست.', 'emzagar' ) );
++			}
++			$hashes[ $rel ] = hash_final( $ctx );
++		}
++		$z->close();
++		return self::verify_parts( $manifest, $sig, $hashes, $config, $expect_version, $current_version, $origins, $keys );
++	}
++
++	/**
++	 * بررسی پوشه‌ی استخراج‌شده (درست پیش از جایگزینی افزونه).
++	 *
++	 * @return array|WP_Error
++	 */
++	public static function verify_dir( $dir, $expect_version, $current_version, $origins, $keys = null ) {
++		$dir = rtrim( (string) $dir, '/\\' );
++		if ( '' === $dir || ! is_dir( $dir ) ) {
++			return self::err( 'bad_dir', __( 'پوشه‌ی به‌روزرسانی پیدا نشد.', 'emzagar' ) );
++		}
++		$hashes   = array();
++		$total    = 0;
++		$count    = 0;
++		$manifest = null;
++		$sig      = null;
++		$config   = null;
++		try {
++			$it = new RecursiveIteratorIterator( new RecursiveDirectoryIterator( $dir, FilesystemIterator::SKIP_DOTS ), RecursiveIteratorIterator::SELF_FIRST );
++			foreach ( $it as $info ) {
++				if ( $info->isLink() ) {
++					return self::err( 'symlink', __( 'بسته شامل لینک نمادین است؛ رد شد.', 'emzagar' ) );
++				}
++				if ( $info->isDir() ) {
++					continue;
++				}
++				$rel = str_replace( '\\', '/', substr( $info->getPathname(), strlen( $dir ) + 1 ) );
++				if ( ! $info->isFile() || ! self::safe_rel( $rel ) ) {
++					return self::err( 'bad_path', __( 'مسیر فایل در بسته مشکوک است؛ رد شد.', 'emzagar' ) );
++				}
++				++$count;
++				$total += (int) $info->getSize();
++				if ( $count > self::MAX_FILES + 20 || $total > self::MAX_TOTAL ) {
++					return self::err( 'bad_zip', __( 'فایل به‌روزرسانی zip معتبر نیست.', 'emzagar' ) );
++				}
++				if ( self::MANIFEST === $rel || self::SIGNATURE === $rel || self::CONFIG === $rel ) {
++					if ( (int) $info->getSize() > self::MAX_SMALL ) {
++						return self::err( 'bad_zip', __( 'فایل به‌روزرسانی zip معتبر نیست.', 'emzagar' ) );
++					}
++					$data = file_get_contents( $info->getPathname() ); // phpcs:ignore WordPress.WP.AlternativeFunctions
++					if ( false === $data ) {
++						return self::err( 'bad_zip', __( 'فایل به‌روزرسانی zip معتبر نیست.', 'emzagar' ) );
++					}
++					if ( self::MANIFEST === $rel ) {
++						$manifest = $data;
++					} elseif ( self::SIGNATURE === $rel ) {
++						$sig = $data;
++					} else {
++						$config = $data;
++					}
++					continue;
++				}
++				$h = hash_file( 'sha256', $info->getPathname() );
++				if ( false === $h ) {
++					return self::err( 'bad_zip', __( 'فایل به‌روزرسانی zip معتبر نیست.', 'emzagar' ) );
++				}
++				$hashes[ $rel ] = $h;
++			}
++		} catch ( \Throwable $e ) { // phpcs:ignore PHPCompatibility.Keywords.NewKeywords.t_throwableFound
++			unset( $e );
++			return self::err( 'bad_dir', __( 'پوشه‌ی به‌روزرسانی خوانده نشد.', 'emzagar' ) );
++		}
++		return self::verify_parts( $manifest, $sig, $hashes, $config, $expect_version, $current_version, $origins, $keys );
++	}
++}
+diff --git a/wordpress-plugin/emzagar-contracts/includes/class-emzagar-updater.php b/wordpress-plugin/emzagar-contracts/includes/class-emzagar-updater.php
+index d013907..1d91cd4 100644
+--- a/wordpress-plugin/emzagar-contracts/includes/class-emzagar-updater.php
++++ b/wordpress-plugin/emzagar-contracts/includes/class-emzagar-updater.php
+@@ -14,6 +14,9 @@ if ( ! defined( 'ABSPATH' ) ) {
+  *
+  * ایمنی:
+  *   • بسته فقط از همان میزبان ابر پذیرفته می‌شود (HTTPS) و پیش از نصب بررسی ساختار zip انجام می‌شود.
++ *   • (CR-05) هیچ بسته‌ای بدون «امضای دیجیتال Ed25519 ناشر» نصب نمی‌شود: امضا با کلید پین‌شده در Emzagar_Release،
++ *     SHA-256 تک‌تک فایل‌ها، فهرست دقیق فایل‌ها و ضد بازگشت نسخه، هم روی zip و هم روی پوشه‌ی استخراج‌شده (فیلتر
++ *     upgrader_source_selection که از هر مسیر دانلودی عبور اجباری است). ابر فقط پخش‌کننده است، نه مرجع اعتماد.
+  *   • پیش از هر به‌روزرسانی، از قوانین/فرم‌ها/تنظیمات پشتیبان گرفته می‌شود (تب «داده‌ها» ← بازگردانی).
+  *   • به‌روزرسانی خودکار پیش‌فرض فقط برای نسخه‌های هم‌خانواده (مثلاً 2.x ← 2.y) است؛ نسخه‌ی major دستی است.
+  *   • قطع بودن ابر یا لایسنس، هیچ‌وقت افزونه را غیرفعال نمی‌کند.
+@@ -28,6 +31,7 @@ class Emzagar_Updater {
+ 		add_filter( 'pre_set_site_transient_update_plugins', array( __CLASS__, 'inject' ) );
+ 		add_filter( 'plugins_api', array( __CLASS__, 'plugin_info' ), 20, 3 );
+ 		add_filter( 'upgrader_pre_download', array( __CLASS__, 'pre_download' ), 10, 3 );
++		add_filter( 'upgrader_source_selection', array( __CLASS__, 'source_selection' ), 5, 4 );
+ 		add_filter( 'upgrader_pre_install', array( __CLASS__, 'pre_install' ), 10, 2 );
+ 		add_filter( 'auto_update_plugin', array( __CLASS__, 'auto_update' ), 20, 2 );
+ 		add_action( 'upgrader_process_complete', array( __CLASS__, 'after_upgrade' ), 10, 2 );
+@@ -208,10 +212,38 @@ class Emzagar_Updater {
+ 		);
+ 	}
+ 
+-	/** دانلود امن بسته: بررسی میزبان و ساختار zip */
++	/** آدرس‌های ابرِ شناخته‌شده‌ی خود افزونه (برای تطبیق دقیق emzagar-config.php بسته) */
++	private static function trusted_origins() {
++		$out  = array();
++		$base = emzagar_options()['base_url'];
++		foreach ( array( Emzagar_Connect::cloud_url(), $base ) as $u ) {
++			$u = is_string( $u ) && '' !== $u ? Emzagar_API::clean_base_url( $u ) : '';
++			if ( '' !== $u ) {
++				$out[] = $u;
++			}
++		}
++		return array_values( array_unique( $out ) );
++	}
++
++	/** نسخه‌ی اعلام‌شده‌ی ابر (از کش؛ هرگز درخواست شبکه نمی‌زند) */
++	private static function advertised_version() {
++		$c = self::cached();
++		return ! empty( $c['version'] ) ? (string) $c['version'] : '';
++	}
++
++	/** آیا این بسته همان بسته‌ی به‌روزرسانی افزونه است؟ */
++	private static function is_our_package( $package ) {
++		if ( ! is_string( $package ) || '' === $package ) {
++			return false;
++		}
++		$c = self::cached();
++		return false !== strpos( $package, '/api/wordpress/plugin' ) || ( ! empty( $c['package'] ) && $package === $c['package'] );
++	}
++
++	/** دانلود امن بسته: بررسی میزبان، ساختار zip و امضای دیجیتال ناشر */
+ 	public static function pre_download( $reply, $package, $upgrader ) {
+ 		unset( $upgrader );
+-		if ( false !== $reply || ! is_string( $package ) || false === strpos( $package, '/api/wordpress/plugin' ) ) {
++		if ( false !== $reply || ! self::is_our_package( $package ) ) {
+ 			return $reply;
+ 		}
+ 		if ( ! self::package_ok( $package ) ) {
+@@ -230,20 +262,39 @@ class Emzagar_Updater {
+ 			fclose( $fh ); // phpcs:ignore WordPress.WP.AlternativeFunctions
+ 		}
+ 		$ok = ( 'PK' === $sig && filesize( $tmp ) > 20000 );
+-		if ( $ok && class_exists( 'ZipArchive' ) ) {
+-			$z  = new ZipArchive();
+-			$ok = ( true === $z->open( $tmp ) ) && false !== $z->locateName( self::SLUG . '/emzagar-contracts.php' );
+-			if ( $ok ) {
+-				$z->close();
+-			}
+-		}
+ 		if ( ! $ok ) {
+ 			wp_delete_file( $tmp );
+ 			return new WP_Error( 'emzagar_pkg_bad', __( 'فایل به‌روزرسانی معتبر نیست؛ نسخه‌ی فعلی دست‌نخورده ماند.', 'emzagar' ) );
+ 		}
++		if ( class_exists( 'ZipArchive' ) ) {
++			$v = Emzagar_Release::verify_zip( $tmp, self::advertised_version(), EMZ_VERSION, self::trusted_origins() );
++			if ( is_wp_error( $v ) ) {
++				wp_delete_file( $tmp );
++				return $v;
++			}
++		}
++		// بدون ZipArchive، بررسی کامل را source_selection روی فایل‌های استخراج‌شده انجام می‌دهد (اجباری).
+ 		return $tmp;
+ 	}
+ 
++	/**
++	 * خط دفاعی نهایی (CR-05): فایل‌هایی که «واقعاً» قرار است جایگزین افزونه شوند با امضای ناشر سنجیده می‌شوند.
++	 * این فیلتر مستقل از آدرس دانلود اجرا می‌شود؛ پس حتی بسته‌ی جعلی با آدرس دلخواه هم از آن عبور نمی‌کند.
++	 *
++	 * @param string|WP_Error $source        پوشه‌ی استخراج‌شده
++	 * @param string          $remote_source پوشه‌ی موقت
++	 * @param object          $upgrader      ارتقادهنده
++	 * @param array           $hook_extra    اطلاعات افزونه
++	 */
++	public static function source_selection( $source, $remote_source = '', $upgrader = null, $hook_extra = array() ) {
++		unset( $remote_source, $upgrader );
++		if ( is_wp_error( $source ) || ! is_array( $hook_extra ) || empty( $hook_extra['plugin'] ) || self::basename() !== $hook_extra['plugin'] ) {
++			return $source;
++		}
++		$v = Emzagar_Release::verify_dir( (string) $source, self::advertised_version(), EMZ_VERSION, self::trusted_origins() );
++		return is_wp_error( $v ) ? $v : $source;
++	}
++
+ 	/** پیش از جایگزینی فایل‌ها: پشتیبان از قوانین/فرم‌ها/تنظیمات */
+ 	public static function pre_install( $response, $hook_extra ) {
+ 		if ( isset( $hook_extra['plugin'] ) && self::basename() === $hook_extra['plugin'] ) {

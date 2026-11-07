@@ -1,0 +1,13 @@
+node_modules
+.next
+.env
+.env.local
+storage
+release
+*.log
+.git
+storage
+.test-storage
+tests
+
+release-keys

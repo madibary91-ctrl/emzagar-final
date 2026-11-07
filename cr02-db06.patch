@@ -1,0 +1,590 @@
+diff --git a/emzagar-final/src/app/api/cron/run/route.ts b/emzagar-final/src/app/api/cron/run/route.ts
+index 0ff7d03..999b7a1 100644
+--- a/emzagar-final/src/app/api/cron/run/route.ts
++++ b/emzagar-final/src/app/api/cron/run/route.ts
+@@ -15,7 +15,7 @@ async function handle(req: Request) {
+   if (!(await verifyCronSecret(token))) return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
+   const result = await runAutomation("http");
+   // تراکنش‌های پرداخت‌شده‌ای که به‌خاطر قطعی موقت درگاه تایید نشده‌اند (برای هاست‌های بدون پردازه‌ی دائمی)
+-  const payments = await reconcilePendingPayments().catch(() => ({ checked: 0, paid: 0 }));
++  const payments = await reconcilePendingPayments().catch(() => ({ checked: 0, paid: 0, recovered: 0 }));
+   const sync = await dispatchOutbox().catch(() => ({ pushed: 0, failed: 0 }));
+   return NextResponse.json({ ok: true, ...result, payments, sync });
+ }
+diff --git a/emzagar-final/src/db/schema.ts b/emzagar-final/src/db/schema.ts
+index 9beb8a7..1e7f027 100644
+--- a/emzagar-final/src/db/schema.ts
++++ b/emzagar-final/src/db/schema.ts
+@@ -603,6 +603,12 @@ export const payments = pgTable(
+     error: text("error"),
+     createdAt: timestamp("created_at").notNull().defaultNow(),
+     paidAt: timestamp("paid_at"),
++    /**
++     * لحظه‌ی «اعمال اثر پرداخت» (فعال‌سازی اشتراک / شارژ کیف پول). فقط داخل همان تراکنش دیتابیسی پر می‌شود که اثر را اعمال می‌کند،
++     * پس «paid بدون اثر» فقط به‌شکل status='paid' و fulfilled_at IS NULL (داده‌ی قدیمی) ممکن است و زمان‌بند آن را ترمیم می‌کند.
++     * این ستون ضامن اجرای دقیقاً یک‌بارِ اثر است (حتی با فراخوانی دوباره یا درخواست‌های موازی).
++     */
++    fulfilledAt: timestamp("fulfilled_at"),
+   },
+   (t) => [index("payments_ws_idx").on(t.workspaceId, t.createdAt)],
+ );
+diff --git a/emzagar-final/src/modules/billing/subscription.ts b/emzagar-final/src/modules/billing/subscription.ts
+index 9e7fe56..5c523cf 100644
+--- a/emzagar-final/src/modules/billing/subscription.ts
++++ b/emzagar-final/src/modules/billing/subscription.ts
+@@ -1,6 +1,6 @@
+-import { eq } from "drizzle-orm";
++import { and, eq, isNull, sql } from "drizzle-orm";
+ import { db } from "@/db";
+-import { subscriptions } from "@/db/schema";
++import { payments, subscriptions } from "@/db/schema";
+ import { isPlanId, type PlanId } from "./plans";
+ 
+ /** وضعیت مؤثر اشتراک (اشتراک منقضی‌شده خودکار به رایگان برمی‌گردد) */
+@@ -10,18 +10,56 @@ export async function getSubscription(workspaceId: number) {
+   return { planId: (active ? row!.plan : "free") as PlanId, periodEnd: active ? row!.currentPeriodEnd : null, expired: !!row && row.plan !== "free" && !active };
+ }
+ 
+-async function writePeriod(workspaceId: number, plan: PlanId, end: Date) {
+-  await db
++/** مجری پرسش: خود db یا تراکنشِ در جریان */
++export type SubscriptionExecutor = Pick<typeof db, "select" | "insert" | "update" | "execute" | "transaction">;
++
++async function writePeriod(workspaceId: number, plan: PlanId, end: Date, exec: SubscriptionExecutor = db) {
++  await exec
+     .insert(subscriptions)
+     .values({ workspaceId, plan, currentPeriodEnd: end })
+     .onConflictDoUpdate({ target: subscriptions.workspaceId, set: { plan, currentPeriodEnd: end, updatedAt: new Date() } });
+ }
+ 
+-/** تمدید/فعال‌سازی اشتراک: اگر اشتراک فعلی هم‌طرح و هنوز معتبر باشد، به انتهای آن اضافه می‌شود */
+-export async function activateSubscription(workspaceId: number, plan: PlanId, months: number) {
+-  const cur = await getSubscription(workspaceId);
+-  const base = cur.planId === plan && cur.periodEnd ? cur.periodEnd : new Date();
+-  await writePeriod(workspaceId, plan, new Date(base.getTime() + months * 30 * 86400_000));
++/** فضای نام قفل‌های اشتراک (pg_advisory_xact_lock با دو کلید int) */
++const SUBSCRIPTION_LOCK_NS = 727_002;
++
++export type ActivationResult = { applied: boolean; periodEnd: Date | null };
++
++/**
++ * تمدید/فعال‌سازی اشتراک: اگر اشتراک فعلی هم‌طرح و هنوز معتبر باشد، به انتهای آن اضافه می‌شود.
++ *
++ * ایدمپوتنت و اتمی:
++ *  - با `paymentId`، «علامت اعمال» (payments.fulfilled_at) در همان تراکنشی که اشتراک را می‌نویسد گرفته می‌شود؛
++ *    پس یا هر دو انجام می‌شوند یا هیچ‌کدام، و اجرای دوباره‌ی همان پرداخت بی‌اثر است (`applied: false`).
++ *  - `exec` اجازه می‌دهد فعال‌سازی بخشی از تراکنش بزرگ‌تر (مثلاً تایید پرداخت) باشد.
++ *  - خواندن-محاسبه-نوشتنِ تاریخ پایان زیر قفل مشاوره‌ایِ هر فضای کاری انجام می‌شود تا دو پرداخت هم‌زمانِ یک فضا، یکدیگر را گم نکنند (lost update).
++ * بدون `paymentId` رفتار قدیمی (هر فراخوانی یک تمدید) حفظ می‌شود؛ مسئولیت یکتایی با فراخواننده است.
++ */
++export async function activateSubscription(workspaceId: number, plan: PlanId, months: number, opts: { exec?: SubscriptionExecutor; paymentId?: number } = {}): Promise<ActivationResult> {
++  if (!Number.isInteger(months) || months < 1 || months > 120) throw new Error("مدت اشتراک نامعتبر است");
++  const run = async (tx: SubscriptionExecutor): Promise<ActivationResult> => {
++    await tx.execute(sql`select pg_advisory_xact_lock(${SUBSCRIPTION_LOCK_NS}::int, ${workspaceId}::int)`);
++    if (opts.paymentId !== undefined) {
++      const claimed = await tx
++        .update(payments)
++        .set({ fulfilledAt: new Date() })
++        .where(and(eq(payments.id, opts.paymentId), eq(payments.workspaceId, workspaceId), isNull(payments.fulfilledAt)))
++        .returning({ id: payments.id });
++      if (claimed.length === 0) {
++        const [exists] = await tx.select({ id: payments.id }).from(payments).where(and(eq(payments.id, opts.paymentId), eq(payments.workspaceId, workspaceId)));
++        if (!exists) throw new Error("پرداخت یافت نشد");
++        return { applied: false, periodEnd: null }; // قبلاً اعمال شده است
++      }
++    }
++    const [row] = await tx.select().from(subscriptions).where(eq(subscriptions.workspaceId, workspaceId));
++    const now = new Date();
++    const active = !!row && isPlanId(row.plan) && row.plan !== "free" && !!row.currentPeriodEnd && row.currentPeriodEnd > now;
++    const base = active && row!.plan === plan ? row!.currentPeriodEnd! : now;
++    const end = new Date(base.getTime() + months * 30 * 86400_000);
++    await writePeriod(workspaceId, plan, end, tx);
++    return { applied: true, periodEnd: end };
++  };
++  return opts.exec ? run(opts.exec) : db.transaction(run);
+ }
+ 
+ /**
+diff --git a/emzagar-final/src/modules/install/schema-sql.ts b/emzagar-final/src/modules/install/schema-sql.ts
+index bfda5f6..35bb275 100644
+--- a/emzagar-final/src/modules/install/schema-sql.ts
++++ b/emzagar-final/src/modules/install/schema-sql.ts
+@@ -33,7 +33,7 @@ export const SCHEMA_CREATE: string[] = [
+   "CREATE TABLE IF NOT EXISTS \"orders\" (\n\t\"workspace_id\" integer DEFAULT 0 NOT NULL,\n\t\"id\" serial PRIMARY KEY NOT NULL,\n\t\"user_id\" integer NOT NULL,\n\t\"product_id\" integer NOT NULL,\n\t\"amount\" integer DEFAULT 0 NOT NULL,\n\t\"status\" text DEFAULT 'awaiting_signature' NOT NULL,\n\t\"contract_id\" integer,\n\t\"created_at\" timestamp DEFAULT now() NOT NULL\n)",
+   "CREATE TABLE IF NOT EXISTS \"otp_codes\" (\n\t\"id\" serial PRIMARY KEY NOT NULL,\n\t\"contract_id\" integer NOT NULL,\n\t\"signer_id\" integer NOT NULL,\n\t\"user_id\" integer NOT NULL,\n\t\"code_hash\" text NOT NULL,\n\t\"attempts\" integer DEFAULT 0 NOT NULL,\n\t\"expires_at\" timestamp NOT NULL,\n\t\"used_at\" timestamp,\n\t\"created_at\" timestamp DEFAULT now() NOT NULL\n)",
+   "CREATE TABLE IF NOT EXISTS \"password_resets\" (\n\t\"id\" serial PRIMARY KEY NOT NULL,\n\t\"user_id\" integer NOT NULL,\n\t\"token_hash\" text NOT NULL,\n\t\"expires_at\" timestamp NOT NULL,\n\t\"used_at\" timestamp,\n\t\"created_at\" timestamp DEFAULT now() NOT NULL,\n\tCONSTRAINT \"password_resets_token_hash_unique\" UNIQUE(\"token_hash\")\n)",
+-  "CREATE TABLE IF NOT EXISTS \"payments\" (\n\t\"id\" serial PRIMARY KEY NOT NULL,\n\t\"workspace_id\" integer NOT NULL,\n\t\"user_id\" integer NOT NULL,\n\t\"plan\" text NOT NULL,\n\t\"months\" integer DEFAULT 1 NOT NULL,\n\t\"amount\" integer NOT NULL,\n\t\"gateway\" text DEFAULT 'zarinpal' NOT NULL,\n\t\"kind\" text DEFAULT 'subscription' NOT NULL,\n\t\"test\" boolean DEFAULT false NOT NULL,\n\t\"authority\" text NOT NULL,\n\t\"ref_id\" text,\n\t\"status\" text DEFAULT 'pending' NOT NULL,\n\t\"error\" text,\n\t\"created_at\" timestamp DEFAULT now() NOT NULL,\n\t\"paid_at\" timestamp,\n\tCONSTRAINT \"payments_authority_unique\" UNIQUE(\"authority\")\n)",
++  "CREATE TABLE IF NOT EXISTS \"payments\" (\n\t\"id\" serial PRIMARY KEY NOT NULL,\n\t\"workspace_id\" integer NOT NULL,\n\t\"user_id\" integer NOT NULL,\n\t\"plan\" text NOT NULL,\n\t\"months\" integer DEFAULT 1 NOT NULL,\n\t\"amount\" integer NOT NULL,\n\t\"gateway\" text DEFAULT 'zarinpal' NOT NULL,\n\t\"kind\" text DEFAULT 'subscription' NOT NULL,\n\t\"test\" boolean DEFAULT false NOT NULL,\n\t\"authority\" text NOT NULL,\n\t\"ref_id\" text,\n\t\"status\" text DEFAULT 'pending' NOT NULL,\n\t\"error\" text,\n\t\"created_at\" timestamp DEFAULT now() NOT NULL,\n\t\"paid_at\" timestamp,\n\t\"fulfilled_at\" timestamp,\n\tCONSTRAINT \"payments_authority_unique\" UNIQUE(\"authority\")\n)",
+   "CREATE TABLE IF NOT EXISTS \"products\" (\n\t\"workspace_id\" integer DEFAULT 0 NOT NULL,\n\t\"id\" serial PRIMARY KEY NOT NULL,\n\t\"title\" text NOT NULL,\n\t\"description\" text DEFAULT '' NOT NULL,\n\t\"price\" integer DEFAULT 0 NOT NULL,\n\t\"template_id\" integer,\n\t\"created_at\" timestamp DEFAULT now() NOT NULL\n)",
+   "CREATE TABLE IF NOT EXISTS \"referral_codes\" (\n\t\"user_id\" integer PRIMARY KEY NOT NULL,\n\t\"code\" text NOT NULL,\n\t\"created_at\" timestamp DEFAULT now() NOT NULL,\n\tCONSTRAINT \"referral_codes_code_unique\" UNIQUE(\"code\")\n)",
+   "CREATE TABLE IF NOT EXISTS \"referrals\" (\n\t\"id\" serial PRIMARY KEY NOT NULL,\n\t\"referrer_user_id\" integer NOT NULL,\n\t\"referred_user_id\" integer NOT NULL,\n\t\"referred_workspace_id\" integer DEFAULT 0 NOT NULL,\n\t\"code\" text NOT NULL,\n\t\"status\" text DEFAULT 'pending' NOT NULL,\n\t\"signup_ip\" text DEFAULT '' NOT NULL,\n\t\"referrer_credits\" integer DEFAULT 0 NOT NULL,\n\t\"referrer_wallet\" integer DEFAULT 0 NOT NULL,\n\t\"referred_credits\" integer DEFAULT 0 NOT NULL,\n\t\"referred_wallet\" integer DEFAULT 0 NOT NULL,\n\t\"bonus_days\" integer DEFAULT 0 NOT NULL,\n\t\"note\" text DEFAULT '' NOT NULL,\n\t\"created_at\" timestamp DEFAULT now() NOT NULL,\n\t\"qualified_at\" timestamp,\n\tCONSTRAINT \"referrals_referred_user_id_unique\" UNIQUE(\"referred_user_id\")\n)",
+@@ -460,6 +460,7 @@ export const SCHEMA_ALTER: string[] = [
+   "ALTER TABLE \"payments\" ADD COLUMN IF NOT EXISTS \"error\" text",
+   "ALTER TABLE \"payments\" ADD COLUMN IF NOT EXISTS \"created_at\" timestamp DEFAULT now() NOT NULL",
+   "ALTER TABLE \"payments\" ADD COLUMN IF NOT EXISTS \"paid_at\" timestamp",
++  "ALTER TABLE \"payments\" ADD COLUMN IF NOT EXISTS \"fulfilled_at\" timestamp",
+   "ALTER TABLE \"products\" ADD COLUMN IF NOT EXISTS \"workspace_id\" integer DEFAULT 0 NOT NULL",
+   "ALTER TABLE \"products\" ADD COLUMN IF NOT EXISTS \"id\" serial NOT NULL",
+   "ALTER TABLE \"products\" ADD COLUMN IF NOT EXISTS \"title\" text NOT NULL",
+diff --git a/emzagar-final/src/modules/install/service.ts b/emzagar-final/src/modules/install/service.ts
+index 1bcb764..a628260 100644
+--- a/emzagar-final/src/modules/install/service.ts
++++ b/emzagar-final/src/modules/install/service.ts
+@@ -173,6 +173,9 @@ export async function applySchema(): Promise<void> {
+     const hadUsersTable = (await client.query("select 1 from information_schema.tables where table_schema = current_schema() and table_name = 'users'")).rowCount! > 0;
+     const hadVerifyColumn =
+       (await client.query("select 1 from information_schema.columns where table_schema = current_schema() and table_name = 'users' and column_name = 'email_verified_at'")).rowCount! > 0;
++    const hadPaymentsTable = (await client.query("select 1 from information_schema.tables where table_schema = current_schema() and table_name = 'payments'")).rowCount! > 0;
++    const hadFulfilledColumn =
++      (await client.query("select 1 from information_schema.columns where table_schema = current_schema() and table_name = 'payments' and column_name = 'fulfilled_at'")).rowCount! > 0;
+     try {
+       await client.query("BEGIN");
+       for (const st of SCHEMA_CREATE) await client.query(st);
+@@ -188,6 +191,15 @@ export async function applySchema(): Promise<void> {
+         /* ستون موجود یا غیرقابل‌افزودن؛ بی‌اثر */
+       }
+     }
++    if (hadPaymentsTable && !hadFulfilledColumn) {
++      // ارتقا از نسخه‌ی بدون ستون fulfilled_at: پرداخت‌های paid قدیمی قبلاً اعمال شده‌اند و نباید دوباره اعمال (تمدید) شوند.
++      // تنها استثنا: شارژ کیف پول paid که ردیفی در دفتر کل ندارد (اعمال نیمه‌کاره)؛ شارژ با کلید یکتای ref ایدمپوتنت است، پس زمان‌بند آن را ترمیم می‌کند.
++      await client.query(
++        `update payments p set fulfilled_at = coalesce(p.paid_at, p.created_at)
++         where p.status = 'paid' and p.fulfilled_at is null
++           and not (p.kind = 'topup' and p.gateway <> 'wallet' and not exists (select 1 from wallet_transactions w where w.ref = 'topup:' || p.id))`,
++      );
++    }
+     if (hadUsersTable && !hadVerifyColumn) {
+       await client.query("update users set email_verified_at = created_at where email_verified_at is null");
+     }
+diff --git a/emzagar-final/src/modules/payments/service.ts b/emzagar-final/src/modules/payments/service.ts
+index dd37a16..8bb4f7c 100644
+--- a/emzagar-final/src/modules/payments/service.ts
++++ b/emzagar-final/src/modules/payments/service.ts
+@@ -1,9 +1,9 @@
+ import crypto from "node:crypto";
+-import { and, eq, gte, sql } from "drizzle-orm";
++import { and, eq, gte, isNull, ne, sql } from "drizzle-orm";
+ import { db } from "@/db";
+ import { payments } from "@/db/schema";
+ import { logAudit } from "@/modules/audit/service";
+-import { activateSubscription } from "@/modules/billing/subscription";
++import { activateSubscription, type SubscriptionExecutor } from "@/modules/billing/subscription";
+ import { PLANS, isPlanId } from "@/modules/billing/plans";
+ import { notifyTeam } from "@/modules/inbox/service";
+ import { creditToman } from "@/modules/wallet/service";
+@@ -76,20 +76,59 @@ export async function startPayment(p: StartPaymentInput): Promise<string> {
+ 
+ export type VerifyResult = { ok: boolean; workspaceId?: number; kind?: PaymentKind; message: string };
+ 
+-/** اجرای نتیجه‌ی پرداخت موفق (idempotent: اشتراک فقط یک‌بار تمدید و کیف پول فقط یک‌بار شارژ می‌شود) */
+-async function fulfill(pay: typeof payments.$inferSelect, refId: string): Promise<string> {
++type PaymentRow = typeof payments.$inferSelect;
++
++/**
++ * اعمال اثر پرداخت (فعال‌سازی اشتراک / شارژ کیف پول) **داخل تراکنشِ دیتابیسِ فراخواننده**.
++ *
++ * اتمی و ایدمپوتنت: «علامت اعمال» (payments.fulfilled_at) در همین تراکنش و هم‌زمان با خودِ اثر نوشته می‌شود؛
++ * پس یا همه‌ی آن‌ها ثبت می‌شوند یا هیچ‌کدام (کرش وسط کار = rollback کامل)، و اجرای دوباره‌ی همان پرداخت هیچ اثری ندارد.
++ * هر خطایی پرتاب می‌شود تا تراکنش برگردد؛ هیچ اثر جانبی غیردیتابیسی (اعلان، لاگ) در اینجا انجام نمی‌شود.
++ */
++async function applyPaymentEffects(tx: SubscriptionExecutor, pay: PaymentRow, refId: string): Promise<{ applied: boolean }> {
++  if (pay.kind === "topup") {
++    const claimed = await tx
++      .update(payments)
++      .set({ fulfilledAt: new Date() })
++      .where(and(eq(payments.id, pay.id), isNull(payments.fulfilledAt)))
++      .returning({ id: payments.id });
++    if (claimed.length === 0) return { applied: false };
++    const r = await creditToman(pay.workspaceId, pay.amount, { kind: "topup", ref: `topup:${pay.id}`, description: `شارژ از درگاه — کد پیگیری ${refId}`, userId: pay.userId, exec: tx });
++    // «duplicate»: دفتر کل پیش‌تر همین پرداخت را ثبت کرده (مثلاً اعمال نیمه‌کاره‌ی نسخه‌ی قدیمی) و موجودی دوباره شارژ نمی‌شود؛ فقط علامت اعمال کامل می‌شود
++    if (!r.ok && r.reason !== "duplicate") throw new Error(`wallet_credit_failed:${r.reason}`);
++    return { applied: r.ok };
++  }
++  if (!isPlanId(pay.plan) || pay.plan === "free") throw new Error("طرح نامعتبر");
++  const r = await activateSubscription(pay.workspaceId, pay.plan, pay.months, { exec: tx, paymentId: pay.id });
++  return { applied: r.applied };
++}
++
++/** اثرهای جانبیِ پس از commit (لاگ و اعلان)؛ شکست آن‌ها هرگز نتیجه‌ی پرداخت را تغییر نمی‌دهد */
++async function announceFulfilled(pay: PaymentRow, refId: string): Promise<string> {
+   if (pay.kind === "topup") {
+-    await creditToman(pay.workspaceId, pay.amount, { kind: "topup", ref: `topup:${pay.id}`, description: `شارژ از درگاه — کد پیگیری ${refId}`, userId: pay.userId });
+-    await logAudit({ action: "wallet.topup", workspaceId: pay.workspaceId, userId: pay.userId, detail: `${pay.amount.toLocaleString("fa-IR")} تومان — ${pay.gateway} — کد پیگیری ${refId}` });
++    await logAudit({ action: "wallet.topup", workspaceId: pay.workspaceId, userId: pay.userId, detail: `${pay.amount.toLocaleString("fa-IR")} تومان — ${pay.gateway} — کد پیگیری ${refId}` }).catch(() => undefined);
+     await notifyTeam(pay.workspaceId, { kind: "success", title: "کیف پول شارژ شد", body: `${pay.amount.toLocaleString("fa-IR")} تومان به کیف پول افزوده شد.`, href: "/admin/wallet" }, [pay.userId], ["owner", "admin"]).catch(() => 0);
+     return "کیف پول با موفقیت شارژ شد";
+   }
+-  if (!isPlanId(pay.plan) || pay.plan === "free") throw new Error("طرح نامعتبر");
+-  await activateSubscription(pay.workspaceId, pay.plan, pay.months);
+-  await logAudit({ action: "billing.paid", workspaceId: pay.workspaceId, userId: pay.userId, detail: `${PLANS[pay.plan].name} — ${pay.months} ماه — کد پیگیری ${refId}` });
++  const planName = isPlanId(pay.plan) ? PLANS[pay.plan].name : pay.plan;
++  await logAudit({ action: "billing.paid", workspaceId: pay.workspaceId, userId: pay.userId, detail: `${planName} — ${pay.months} ماه — کد پیگیری ${refId}` }).catch(() => undefined);
+   return "پرداخت با موفقیت انجام و اشتراک فعال شد";
+ }
+ 
++/**
++ * ترمیم پرداخت‌های paid که اثرشان اعمال نشده (fulfilled_at خالی): داده‌ی به‌جامانده از نسخه‌های قدیمی که «paid» و «اعمال» دو مرحله‌ی جدا بودند.
++ * ردیف قفل می‌شود (FOR UPDATE) و اعمال ایدمپوتنت است؛ بنابراین اجرای هم‌زمانِ چند ترمیم‌گر یا تکرار آن بی‌خطر است.
++ * خروجی: ردیفی که اعمال شد، یا null اگر چیزی برای اعمال نبود.
++ */
++async function recoverPaidPayment(paymentId: number): Promise<PaymentRow | null> {
++  return db.transaction(async (tx) => {
++    const [row] = await tx.select().from(payments).where(eq(payments.id, paymentId)).for("update");
++    if (!row || row.status !== "paid" || row.fulfilledAt || row.gateway === "wallet") return null;
++    const r = await applyPaymentEffects(tx, row, row.refId || String(row.id));
++    return r.applied ? row : null;
++  });
++}
++
+ /**
+  * تایید بازگشت از درگاه؛ idempotent است (بازگشت دوباره، اشتراک را دوبار تمدید یا کیف پول را دوبار شارژ نمی‌کند).
+  * `status` فقط "OK" یا غیر آن است؛ آداپتور هر درگاه پارامترهای خودش را به این مقدار تبدیل می‌کند.
+@@ -100,7 +139,18 @@ export async function verifyPayment(authority: string, status: string): Promise<
+   if (!pay) return { ok: false, message: "تراکنش یافت نشد" };
+   const kind: PaymentKind = pay.kind === "topup" ? "topup" : "subscription";
+   const base = { workspaceId: pay.workspaceId, kind };
+-  if (pay.status === "paid") return { ok: true, ...base, message: "این پرداخت قبلاً تایید شده است" };
++  if (pay.status === "paid") {
++    // paid ولی اثرش اعمال نشده (داده‌ی نسخه‌های قدیمی): همین‌جا ترمیم می‌شود، نه اینکه بی‌صدا «تایید شده» گزارش شود
++    if (!pay.fulfilledAt && pay.gateway !== "wallet") {
++      try {
++        const rec = await recoverPaidPayment(pay.id);
++        if (rec) return { ok: true, ...base, message: await announceFulfilled(rec, rec.refId || String(rec.id)) };
++      } catch {
++        return { ok: false, ...base, message: "پرداخت دریافت شد ولی اعمال آن با تاخیر انجام می‌شود؛ چند دقیقه بعد بررسی کنید." };
++      }
++    }
++    return { ok: true, ...base, message: "این پرداخت قبلاً تایید شده است" };
++  }
+   // تراکنشِ قبلاً ناموفق/لغوشده با بازگشت دوباره (Status=OK جعلی یا تکراری) هرگز زنده نمی‌شود
+   if (pay.status === "failed") return { ok: false, ...base, message: "این تراکنش قبلاً ناموفق ثبت شده است؛ پرداخت جدیدی آغاز کنید" };
+   const adapter = pay.gateway === "wallet" ? null : getAdapter(pay.gateway);
+@@ -126,28 +176,39 @@ export async function verifyPayment(authority: string, status: string): Promise<
+   // مبلغ تاییدشده‌ی درگاه باید دقیقاً با مبلغ سفارش یکی باشد
+   if (out.amountRial !== undefined && out.amountRial !== pay.amount * 10) return fail("مبلغ پرداخت‌شده با مبلغ سفارش مطابقت ندارد؛ با پشتیبانی تماس بگیرید");
+ 
+-  // فقط اولین درخواست موفق، وضعیت را از pending به paid می‌برد
+-  const claimed = await db
+-    .update(payments)
+-    .set({ status: "paid", refId: out.refId, paidAt: new Date(), error: null })
+-    .where(and(eq(payments.id, pay.id), eq(payments.status, "pending")))
+-    .returning({ id: payments.id });
+-  if (claimed.length === 0) {
+-    const [now] = await db.select({ status: payments.status }).from(payments).where(eq(payments.id, pay.id));
+-    return now?.status === "paid" ? { ok: true, ...base, message: "این پرداخت قبلاً تایید شده است" } : { ok: false, ...base, message: "وضعیت تراکنش نامعتبر است" };
+-  }
++  // «paid شدن» و «اعمال اثر» در **یک تراکنش دیتابیس** انجام می‌شوند:
++  //  - فقط اولین درخواست موفق ردیف را از pending به paid می‌برد (درخواست‌های هم‌زمان پشت قفل ردیف منتظر می‌مانند)؛
++  //  - اگر اعمال اثر شکست بخورد یا پروسه وسط کار بمیرد، کل تراکنش (از جمله وضعیت paid) برمی‌گردد و ردیف pending می‌ماند؛
++  //    پس هرگز «paid بدون اثر» ساخته نمی‌شود و زمان‌بند دوباره تایید و اعمال می‌کند.
++  let outcome: { applied: boolean } | null;
+   try {
+-    const message = await fulfill(pay, out.refId);
+-    return { ok: true, ...base, message };
++    outcome = await db.transaction(async (tx) => {
++      const claimed = await tx
++        .update(payments)
++        .set({ status: "paid", refId: out.refId, paidAt: new Date(), error: null })
++        .where(and(eq(payments.id, pay.id), eq(payments.status, "pending")))
++        .returning({ id: payments.id });
++      if (claimed.length === 0) return null;
++      return applyPaymentEffects(tx, pay, out.refId);
++    });
+   } catch {
+-    // خطای موقت دیتابیس هنگام اعمال: به pending برمی‌گردد تا زمان‌بند دوباره تایید و اعمال کند (اعمال ایدمپوتنت است)
+-    await db.update(payments).set({ status: "pending", paidAt: null, error: `${VERIFY_PENDING}: fulfillment` }).where(eq(payments.id, pay.id));
++    // خطای موقت دیتابیس/اعمال: تراکنش برگشته و ردیف pending است؛ علامت می‌گذاریم تا زمان‌بند دوباره تایید و اعمال کند (اعمال ایدمپوتنت است)
++    await db.update(payments).set({ error: `${VERIFY_PENDING}: fulfillment` }).where(and(eq(payments.id, pay.id), eq(payments.status, "pending"))).catch(() => undefined);
+     return { ok: false, ...base, message: "پرداخت دریافت شد ولی اعمال آن با تاخیر انجام می‌شود؛ چند دقیقه بعد بررسی کنید." };
+   }
++  if (outcome === null) {
++    const [now] = await db.select({ status: payments.status }).from(payments).where(eq(payments.id, pay.id));
++    return now?.status === "paid" ? { ok: true, ...base, message: "این پرداخت قبلاً تایید شده است" } : { ok: false, ...base, message: "وضعیت تراکنش نامعتبر است" };
++  }
++  return { ok: true, ...base, message: await announceFulfilled(pay, out.refId) };
+ }
+ 
+-/** بازبینی تراکنش‌هایی که کاربر پرداخت کرده ولی تایید آن به‌خاطر قطعی موقت درگاه انجام نشد (تا ۴۸ ساعت) */
+-export async function reconcilePendingPayments(limit = 20): Promise<{ checked: number; paid: number }> {
++/**
++ * بازبینی تراکنش‌های پرداخت:
++ *  ۱) pending های معلقِ قطعی درگاه (تا ۴۸ ساعت): دوباره با درگاه تایید و (اتمی) اعمال می‌شوند؛
++ *  ۲) paid هایی که اثرشان اعمال نشده (fulfilled_at خالی؛ باقیمانده‌ی نسخه‌های قدیمی): بدون سقف زمانی ترمیم می‌شوند، چون پولشان گرفته شده است.
++ */
++export async function reconcilePendingPayments(limit = 20): Promise<{ checked: number; paid: number; recovered: number }> {
+   const rows = await db
+     .select({ authority: payments.authority })
+     .from(payments)
+@@ -158,7 +219,21 @@ export async function reconcilePendingPayments(limit = 20): Promise<{ checked: n
+     const res = await verifyPayment(r.authority, "OK").catch(() => null);
+     if (res?.ok) paid++;
+   }
+-  return { checked: rows.length, paid };
++  const stuck = await db
++    .select({ id: payments.id })
++    .from(payments)
++    .where(and(eq(payments.status, "paid"), isNull(payments.fulfilledAt), ne(payments.gateway, "wallet")))
++    .orderBy(payments.id)
++    .limit(limit);
++  let recovered = 0;
++  for (const r of stuck) {
++    const rec = await recoverPaidPayment(r.id).catch(() => null);
++    if (rec) {
++      recovered++;
++      await announceFulfilled(rec, rec.refId || String(rec.id)).catch(() => undefined);
++    }
++  }
++  return { checked: rows.length + stuck.length, paid, recovered };
+ }
+ 
+ /** آمار ۳۰ روز اخیر هر درگاه (برای پنل مدیر): نرخ موفقیت و مبلغ */
+diff --git a/emzagar-final/src/modules/wallet/purchase.ts b/emzagar-final/src/modules/wallet/purchase.ts
+index b3e4ec4..ceb3cd9 100644
+--- a/emzagar-final/src/modules/wallet/purchase.ts
++++ b/emzagar-final/src/modules/wallet/purchase.ts
+@@ -26,7 +26,7 @@ export async function payPlanWithWallet(p: { workspaceId: number; userId: number
+     return { ok: false, error: debit.reason === "insufficient" ? "موجودی کیف پول کافی نیست؛ ابتدا کیف پول را شارژ کنید." : "پرداخت انجام نشد؛ دوباره تلاش کنید." };
+   }
+   try {
+-    await activateSubscription(p.workspaceId, p.plan, p.months);
++    await activateSubscription(p.workspaceId, p.plan, p.months, { paymentId: row.id });
+   } catch (e) {
+     // فعال‌سازی شکست خورد: وجه به کیف پول برمی‌گردد
+     await applyWalletOps(p.workspaceId, [{ asset: "toman", delta: amount, kind: "refund", ref: `plan:${row.id}:refund`, description: "بازگشت وجه (فعال‌سازی اشتراک انجام نشد)", userId: p.userId }]);
+diff --git a/emzagar-final/src/modules/wallet/service.ts b/emzagar-final/src/modules/wallet/service.ts
+index 6a740c3..da9683d 100644
+--- a/emzagar-final/src/modules/wallet/service.ts
++++ b/emzagar-final/src/modules/wallet/service.ts
+@@ -10,6 +10,9 @@ import { packById } from "./packs";
+  *  - هر تغییر یک ردیف در دفتر کل دارد؛ کلید یکتای `ref` از ثبت دوباره‌ی همان رویداد (مثلاً بازگشت مجدد از درگاه) جلوگیری می‌کند.
+  *  - اگر هر مرحله شکست بخورد، کل تراکنش برگردانده می‌شود.
+  */
++/** مجری پرسش: خود db یا یک تراکنش در جریان (برای اینکه شارژ کیف پول بخشی از تراکنشِ بزرگ‌تر شود) */
++export type DbExecutor = Pick<typeof db, "transaction">;
++
+ export type Asset = "toman" | "credits";
+ export type WalletOp = { asset: Asset; delta: number; kind: string; ref?: string; description?: string; userId?: number | null };
+ export type WalletResult = { ok: true; balance: number; credits: number } | { ok: false; reason: "insufficient" | "duplicate" | "invalid" };
+@@ -20,11 +23,12 @@ class Abort extends Error {
+   }
+ }
+ 
+-export async function applyWalletOps(workspaceId: number, ops: WalletOp[]): Promise<WalletResult> {
++export async function applyWalletOps(workspaceId: number, ops: WalletOp[], exec: DbExecutor = db): Promise<WalletResult> {
+   if (!Number.isInteger(workspaceId) || workspaceId <= 0 || ops.length === 0) return { ok: false, reason: "invalid" };
+   if (ops.some((o) => !Number.isSafeInteger(o.delta) || o.delta === 0)) return { ok: false, reason: "invalid" };
+   try {
+-    return await db.transaction(async (tx) => {
++    // اگر exec یک تراکنش باشد، این بلوک یک SAVEPOINT است: شکستِ آن فقط خودش را برمی‌گرداند و تراکنش بیرونی دست‌نخورده می‌ماند
++    return await exec.transaction(async (tx) => {
+       await tx.insert(wallets).values({ workspaceId }).onConflictDoNothing();
+       let last = { balance: 0, credits: 0 };
+       for (const op of ops) {
+@@ -71,8 +75,8 @@ export async function listWalletTransactions(workspaceId: number, limit = 40) {
+ }
+ 
+ /** شارژ ریالی کیف پول (مثلاً پس از تایید پرداخت درگاه). ref یکتا است: تایید دوباره، دوبار شارژ نمی‌کند. */
+-export async function creditToman(workspaceId: number, amount: number, o: { kind: string; ref: string; description: string; userId?: number | null }): Promise<WalletResult> {
+-  return applyWalletOps(workspaceId, [{ asset: "toman", delta: Math.round(amount), kind: o.kind, ref: o.ref, description: o.description, userId: o.userId }]);
++export async function creditToman(workspaceId: number, amount: number, o: { kind: string; ref: string; description: string; userId?: number | null; exec?: DbExecutor }): Promise<WalletResult> {
++  return applyWalletOps(workspaceId, [{ asset: "toman", delta: Math.round(amount), kind: o.kind, ref: o.ref, description: o.description, userId: o.userId }], o.exec);
+ }
+ 
+ /** هدیه‌ی اعتبار قرارداد (پاداش دعوت و …) */
+diff --git a/emzagar-final/tests/integration/payment-atomicity.test.ts b/emzagar-final/tests/integration/payment-atomicity.test.ts
+new file mode 100644
+index 0000000..f36a059
+--- /dev/null
++++ b/emzagar-final/tests/integration/payment-atomicity.test.ts
+@@ -0,0 +1,191 @@
++import { afterEach, beforeAll, describe, expect, it } from "vitest";
++import { eq, sql } from "drizzle-orm";
++import { db } from "@/db";
++import { payments, users, walletTransactions } from "@/db/schema";
++import { hashPassword } from "@/lib/password";
++import { createWorkspace } from "@/modules/tenancy/service";
++import { activateSubscription, getSubscription } from "@/modules/billing/subscription";
++import { reconcilePendingPayments, startPayment, verifyPayment } from "@/modules/payments/service";
++import { startCheckout } from "@/modules/billing/service";
++import { creditToman, getWallet } from "@/modules/wallet/service";
++import { payPlanWithWallet } from "@/modules/wallet/purchase";
++import { uniq } from "../helpers";
++
++/**
++ * CR-02 / DB-06: اعمال پرداخت باید اتمی و ایدمپوتنت باشد.
++ *  - «paid شدن» و «اعمال اثر» در یک تراکنش‌اند؛ شکست/کرش وسط کار = rollback کامل (نه paid بدون اثر)
++ *  - activateSubscription با شناسه‌ی پرداخت دوبار تمدید نمی‌کند
++ *  - باقیمانده‌ی «paid بدون اثر» (داده‌ی قدیمی) توسط reconcile ترمیم می‌شود
++ */
++const origin = "http://localhost:3000";
++const DAY = 86400_000;
++let userId = 0;
++let seq = 0;
++
++beforeAll(async () => {
++  const [u] = await db.insert(users).values({ name: "اتمیک", email: `${uniq("atom")}@example.com`, mobile: "09120000077", passwordHash: hashPassword("Atom12345x"), emailVerifiedAt: new Date() }).returning();
++  userId = u.id;
++});
++
++const newWs = () => createWorkspace(userId, `فضای اتمیک ${++seq}`);
++const authorityOf = (url: string) => new URL(url).searchParams.get("Authority")!;
++const rowOf = async (authority: string) => (await db.select().from(payments).where(eq(payments.authority, authority)))[0];
++const near = (t: number, days: number) => Math.abs(t - (Date.now() + days * DAY)) < 60_000;
++
++/** تریگر دیتابیس که هر نوشتن روی subscriptions را رد می‌کند = شبیه‌سازی مرگ/خطا بعد از «paid» شدن و پیش از فعال‌سازی */
++async function breakSubscriptionWrites() {
++  await db.execute(sql.raw(`create or replace function atom_test_fail() returns trigger language plpgsql as $$ begin raise exception 'simulated crash'; end $$`));
++  await db.execute(sql.raw(`create trigger atom_test_block before insert or update on subscriptions for each row execute function atom_test_fail()`));
++}
++async function repairSubscriptionWrites() {
++  await db.execute(sql.raw(`drop trigger if exists atom_test_block on subscriptions`));
++}
++afterEach(repairSubscriptionWrites);
++
++async function insertPayment(ws: number, v: Partial<typeof payments.$inferInsert>) {
++  const [row] = await db
++    .insert(payments)
++    .values({ workspaceId: ws, userId, plan: "pro", months: 1, amount: 490_000, gateway: "sandbox", kind: "subscription", authority: `legacy-${uniq("a")}`, ...v })
++    .returning();
++  return row;
++}
++
++describe("اعمال اتمی پرداخت (CR-02)", () => {
++  it("خطا/کرش بین «paid» و «فعال‌سازی»: وضعیت paid ثبت نمی‌شود و بعداً خودکار یک‌بار اعمال می‌شود", async () => {
++    const ws = await newWs();
++    const authority = authorityOf(await startCheckout({ workspaceId: ws, userId, plan: "pro", months: 1, origin }));
++
++    await breakSubscriptionWrites();
++    const first = await verifyPayment(authority, "OK");
++    expect(first.ok).toBe(false);
++    let row = await rowOf(authority);
++    expect(row.status).toBe("pending"); // نه paid-بدون-اثر
++    expect(row.paidAt).toBeNull();
++    expect(row.fulfilledAt).toBeNull();
++    expect(row.error).toContain("verify_pending");
++    expect((await getSubscription(ws)).planId).toBe("free");
++
++    await repairSubscriptionWrites();
++    const rec = await reconcilePendingPayments();
++    expect(rec.paid).toBeGreaterThanOrEqual(1);
++    row = await rowOf(authority);
++    expect(row.status).toBe("paid");
++    expect(row.fulfilledAt).not.toBeNull();
++    const end = (await getSubscription(ws)).periodEnd!.getTime();
++    expect(near(end, 30)).toBe(true);
++
++    // اجرای دوباره‌ی همه‌چیز (reconcile، callback تکراری) تاریخ را تغییر نمی‌دهد
++    await reconcilePendingPayments();
++    expect((await verifyPayment(authority, "OK")).ok).toBe(true);
++    expect((await getSubscription(ws)).periodEnd!.getTime()).toBe(end);
++  });
++
++  it("شارژ کیف پول: اگر دفتر کل از قبل ثبت شده (اعمال نیمه‌کاره‌ی قدیمی) موجودی دوبار شارژ نمی‌شود", async () => {
++    const ws = await newWs();
++    const url = await startPayment({ kind: "topup", workspaceId: ws, userId, amountToman: 120_000, origin, description: "شارژ" });
++    const authority = authorityOf(url);
++    const row0 = await rowOf(authority);
++    await creditToman(ws, 120_000, { kind: "topup", ref: `topup:${row0.id}`, description: "قبلی" });
++    expect((await verifyPayment(authority, "OK")).ok).toBe(true);
++    expect((await getWallet(ws)).balance).toBe(120_000);
++    expect((await rowOf(authority)).fulfilledAt).not.toBeNull();
++    await verifyPayment(authority, "OK");
++    await reconcilePendingPayments();
++    expect((await getWallet(ws)).balance).toBe(120_000);
++  });
++
++  it("paid ماندگار قدیمی (بدون اثر) توسط reconcile دقیقاً یک‌بار ترمیم می‌شود — اشتراک", async () => {
++    const ws = await newWs();
++    const p = await insertPayment(ws, { status: "paid", paidAt: new Date(), refId: "R1" });
++    expect((await getSubscription(ws)).planId).toBe("free");
++    const r1 = await reconcilePendingPayments();
++    expect(r1.recovered).toBeGreaterThanOrEqual(1);
++    const end = (await getSubscription(ws)).periodEnd!.getTime();
++    expect(near(end, 30)).toBe(true);
++    expect((await rowOf(p.authority)).fulfilledAt).not.toBeNull();
++    await reconcilePendingPayments();
++    await reconcilePendingPayments();
++    expect((await getSubscription(ws)).periodEnd!.getTime()).toBe(end);
++  });
++
++  it("paid ماندگار قدیمی — شارژ کیف پول: یک‌بار شارژ و سپس بی‌اثر", async () => {
++    const ws = await newWs();
++    const p = await insertPayment(ws, { status: "paid", paidAt: new Date(), refId: "R2", kind: "topup", plan: "wallet", amount: 75_000, gateway: "zarinpal" });
++    await reconcilePendingPayments();
++    await reconcilePendingPayments();
++    expect((await getWallet(ws)).balance).toBe(75_000);
++    const ledger = await db.select().from(walletTransactions).where(eq(walletTransactions.ref, `topup:${p.id}`));
++    expect(ledger).toHaveLength(1);
++  });
++
++  it("بازگشت دوباره‌ی کاربر روی paid ماندگار قدیمی هم آن را ترمیم می‌کند (نه فقط «قبلاً تایید شده»)", async () => {
++    const ws = await newWs();
++    const p = await insertPayment(ws, { status: "paid", paidAt: new Date(), refId: "R3", authority: `legacy-${uniq("cb")}-0123456789` });
++    const r = await verifyPayment(p.authority, "OK");
++    expect(r.ok).toBe(true);
++    expect((await getSubscription(ws)).planId).toBe("pro");
++    const end = (await getSubscription(ws)).periodEnd!.getTime();
++    await verifyPayment(p.authority, "OK");
++    expect((await getSubscription(ws)).periodEnd!.getTime()).toBe(end);
++  });
++
++  it("پرداخت اشتراک با کیف پول هم علامت اعمال می‌گیرد و reconcile دوباره تمدیدش نمی‌کند", async () => {
++    const ws = await newWs();
++    await creditToman(ws, 1_000_000, { kind: "topup", ref: `seed-${ws}`, description: "seed" });
++    expect((await payPlanWithWallet({ workspaceId: ws, userId, plan: "pro", months: 1 })).ok).toBe(true);
++    const end = (await getSubscription(ws)).periodEnd!.getTime();
++    const [row] = await db.select().from(payments).where(eq(payments.workspaceId, ws));
++    expect(row.status).toBe("paid");
++    expect(row.fulfilledAt).not.toBeNull();
++    await reconcilePendingPayments();
++    expect((await getSubscription(ws)).periodEnd!.getTime()).toBe(end);
++  });
++});
++
++describe("activateSubscription ایدمپوتنت (DB-06)", () => {
++  it("همان پرداخت را هرچندبار اجرا کنی فقط یک‌بار تمدید می‌شود", async () => {
++    const ws = await newWs();
++    const p = await insertPayment(ws, {});
++    const a = await activateSubscription(ws, "pro", 1, { paymentId: p.id });
++    expect(a.applied).toBe(true);
++    const end = (await getSubscription(ws)).periodEnd!.getTime();
++    for (let i = 0; i < 3; i++) expect((await activateSubscription(ws, "pro", 1, { paymentId: p.id })).applied).toBe(false);
++    expect((await getSubscription(ws)).periodEnd!.getTime()).toBe(end);
++  });
++
++  it("فراخوانی موازیِ همان پرداخت فقط یک‌بار اعمال می‌شود", async () => {
++    const ws = await newWs();
++    const p = await insertPayment(ws, {});
++    const res = await Promise.all(Array.from({ length: 8 }, () => activateSubscription(ws, "pro", 1, { paymentId: p.id })));
++    expect(res.filter((r) => r.applied)).toHaveLength(1);
++    expect(near((await getSubscription(ws)).periodEnd!.getTime(), 30)).toBe(true);
++  });
++
++  it("دو پرداخت متفاوتِ هم‌زمان برای یک فضا هر دو شمرده می‌شوند (بدون lost update)", async () => {
++    const ws = await newWs();
++    const [p1, p2] = [await insertPayment(ws, {}), await insertPayment(ws, {})];
++    await Promise.all([activateSubscription(ws, "pro", 1, { paymentId: p1.id }), activateSubscription(ws, "pro", 1, { paymentId: p2.id })]);
++    expect(near((await getSubscription(ws)).periodEnd!.getTime(), 60)).toBe(true);
++  });
++
++  it("در تراکنش بیرونی: rollback بیرونی، علامت اعمال و تمدید را با هم برمی‌گرداند", async () => {
++    const ws = await newWs();
++    const p = await insertPayment(ws, {});
++    await expect(
++      db.transaction(async (tx) => {
++        await activateSubscription(ws, "pro", 1, { exec: tx, paymentId: p.id });
++        throw new Error("boom");
++      }),
++    ).rejects.toThrow("boom");
++    expect((await getSubscription(ws)).planId).toBe("free");
++    expect((await db.select().from(payments).where(eq(payments.id, p.id)))[0].fulfilledAt).toBeNull();
++    expect((await activateSubscription(ws, "pro", 1, { paymentId: p.id })).applied).toBe(true);
++  });
++
++  it("پرداخت ناموجود یا مدت نامعتبر رد می‌شود", async () => {
++    const ws = await newWs();
++    await expect(activateSubscription(ws, "pro", 1, { paymentId: 999_999_999 })).rejects.toThrow();
++    await expect(activateSubscription(ws, "pro", 0)).rejects.toThrow();
++    expect((await getSubscription(ws)).planId).toBe("free");
++  });
++});

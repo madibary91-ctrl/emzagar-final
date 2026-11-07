@@ -1,0 +1,37 @@
+/* امضاگیر — مرکز فرماندهی، ویجت پیشخوان و نشان‌ها در پیشخوان وردپرس */
+.emz-badge{display:inline-block;padding:1px 8px;border-radius:99px;font-size:11px;line-height:18px;font-weight:600;background:#eee;color:#444}
+.emz-badge-signed{background:#dcfce7;color:#166534}.emz-badge-pending{background:#fef3c7;color:#92400e}
+.emz-badge-rejected,.emz-badge-expired,.emz-badge-cancelled{background:#fee2e2;color:#991b1b}
+.emz-chip-k{display:inline-block;padding:2px 9px;border-radius:99px;font-size:11px;font-weight:700;white-space:nowrap;background:#e5e7eb;color:#374151}
+.emz-k-stale{background:#fef3c7;color:#92400e}.emz-k-expiring{background:#fee2e2;color:#991b1b}
+.emz-k-renewal{background:#dbeafe;color:#1e40af}.emz-k-rejected{background:#f3e8ff;color:#6b21a8}
+
+.emz-w-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:10px}
+.emz-w-grid div{background:#f6f7f7;border-radius:10px;padding:10px;text-align:center}
+.emz-w-grid b{display:block;font-size:22px;line-height:1.2;color:#0f766e}
+.emz-w-grid span{font-size:11px;color:#50575e}
+.emz-w-note{margin:6px 0;color:#50575e}
+.emz-w-list{margin:8px 0;padding:0;list-style:none}.emz-w-list li{padding:5px 0;border-top:1px solid #f0f0f1}
+
+.emz-hub .emz-h-toolbar{display:flex;flex-wrap:wrap;gap:8px;margin:14px 0}
+.emz-h-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin-bottom:16px}
+.emz-h-card{background:#fff;border:1px solid #dcdcde;border-radius:12px;padding:14px;display:flex;flex-direction:column;gap:6px}
+.emz-h-card span{font-size:12px;color:#646970}.emz-h-card b{font-size:20px;color:#0f766e}
+.emz-h-cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:16px;margin-bottom:16px}
+.emz-h-box{background:#fff;border:1px solid #dcdcde;border-radius:12px;padding:16px 18px;margin-bottom:16px}
+.emz-h-cols .emz-h-box{margin-bottom:0}
+.emz-h-box h2{margin-top:0;font-size:15px;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.emz-h-empty{color:#646970}
+.emz-h-roi{margin:0 0 12px;padding:0;list-style:none}.emz-h-roi li{padding:6px 0;border-top:1px solid #f0f0f1}.emz-h-roi b{color:#0f766e}
+.emz-spark{display:flex;align-items:flex-end;gap:4px;height:60px;margin-top:8px}
+.emz-bar{display:flex;align-items:flex-end;gap:1px;flex:1}
+.emz-bar i{display:block;flex:1;border-radius:2px 2px 0 0}
+.emz-bar .i,.emz-h-legend .i{background:#cbd5e1}.emz-bar .s,.emz-h-legend .s{background:#0f766e}
+.emz-h-legend{color:#646970}.emz-h-legend i{display:inline-block;width:10px;height:10px;border-radius:2px;vertical-align:middle}
+.emz-h-score{margin-inline-start:auto;font-size:22px;color:#0f766e}
+.emz-h-meter{height:10px;background:#eef0f1;border-radius:99px;overflow:hidden}.emz-h-meter i{display:block;height:100%;background:#0f766e;border-radius:99px}
+.emz-h-next{background:#fffbeb;border-radius:8px;padding:8px 12px}
+.emz-h-steps{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:8px;margin:12px 0 0;padding:0;list-style:none}
+.emz-h-steps li{background:#f6f7f7;border-radius:10px;padding:8px 12px;display:grid;grid-template-columns:20px 1fr;column-gap:6px}
+.emz-h-steps li small{grid-column:2;color:#646970}.emz-h-steps li.is-done span{color:#16a34a}
+.emz-h-gates{margin:0 0 10px;padding:0;list-style:none}.emz-h-gates li{padding:4px 0;border-top:1px solid #f0f0f1}

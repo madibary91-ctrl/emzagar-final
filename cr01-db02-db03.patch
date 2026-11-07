@@ -1,0 +1,1351 @@
+diff --git a/src/db/index.ts b/src/db/index.ts
+index 1e84fda..15d12c1 100644
+--- a/src/db/index.ts
++++ b/src/db/index.ts
+@@ -1,3 +1,5 @@
++import { AsyncLocalStorage } from "node:async_hooks";
++import { sql } from "drizzle-orm";
+ import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
+ import { Pool } from "pg";
+ import { getConfig } from "@/lib/config";
+@@ -18,6 +20,7 @@ type Holder = typeof globalThis & {
+   __emzPool?: Pool;
+   __emzPoolUrl?: string;
+   __emzDb?: NodePgDatabase;
++  __emzTxStore?: AsyncLocalStorage<TxScope | undefined>;
+ };
+ const g = globalThis as Holder;
+ 
+@@ -39,6 +42,103 @@ export function getDb(): NodePgDatabase {
+   return g.__emzDb as NodePgDatabase;
+ }
+ 
++/* ═════════════════════════════════════════════════════════════════════════════
++ * تراکنش «محیطی» (Ambient Transaction)
++ *
++ * `withTransaction(fn)` یک تراکنش PostgreSQL باز می‌کند و آن را در AsyncLocalStorage نگه می‌دارد.
++ * هر کدی که داخل `fn` (حتی چند لایه‌ی پایین‌تر و بدون هیچ پارامتر اضافه) از `db` استفاده کند،
++ * خودکار روی همان تراکنش اجرا می‌شود؛ پس سرویس‌های موجود (logAudit، snapshotRevision، createWorkspace و …)
++ * بدون تغییر امضا، بخشی از یک واحد اتمی می‌شوند: «یا همه، یا هیچ».
++ *
++ *  - تودرتو: فراخوانی `withTransaction` داخل تراکنش، یک SAVEPOINT می‌سازد (شکست آن فقط خودش را برمی‌گرداند).
++ *  - `afterCommit(fn)`: کارهای جانبی (ایمیل، وب‌هوک، PDF، …) فقط پس از commit موفق اجرا می‌شوند و در rollback دور ریخته می‌شوند.
++ *    خارج از تراکنش بلافاصله اجرا می‌شود.
++ *  - `onRollback(fn)`: جبران اثرهای غیر-دیتابیسی (مثلاً حذف فایل نوشته‌شده) هنگام برگشت.
++ *  - `outsideTransaction(fn)`: اجرای کد مستقل از تراکنش جاری (مثلاً ثبت لاگ شکست که نباید با rollback از بین برود).
++ *  - پس از پایان تراکنش، هر ادامه‌ی ناهمگام جامانده (fire-and-forget) خودکار به اتصال عادی برمی‌گردد
++ *    و هرگز از یک تراکنشِ بسته‌شده استفاده نمی‌کند.
++ * ═══════════════════════════════════════════════════════════════════════════ */
++export type Tx = Parameters<Parameters<NodePgDatabase["transaction"]>[0]>[0];
++type Hook = () => void | Promise<void>;
++interface TxScope {
++  tx: Tx;
++  commitHooks: Hook[];
++  rollbackHooks: Hook[];
++  closed: boolean;
++}
++
++const txStore: AsyncLocalStorage<TxScope | undefined> = (g.__emzTxStore ??= new AsyncLocalStorage<TxScope | undefined>());
++
++function activeScope(): TxScope | null {
++  const s = txStore.getStore();
++  return s && !s.closed ? s : null;
++}
++
++/** آیا کد فعلی داخل یک تراکنش باز اجرا می‌شود؟ */
++export function inTransaction(): boolean {
++  return activeScope() !== null;
++}
++
++async function runHooks(hooks: Hook[], label: string): Promise<void> {
++  for (const h of hooks) {
++    try {
++      await h();
++    } catch (e) {
++      console.error(`[tx:${label}]`, e);
++    }
++  }
++}
++
++export async function withTransaction<T>(fn: (tx: Tx) => Promise<T>): Promise<T> {
++  const parent = activeScope();
++  const scope: TxScope = { tx: undefined as unknown as Tx, commitHooks: [], rollbackHooks: [], closed: false };
++  const body = async (tx: Tx) => {
++    scope.tx = tx;
++    const out = await txStore.run(scope, () => fn(tx));
++    // سد ایمنی: اگر کدی خطای SQL را بلعیده باشد، PostgreSQL تراکنش را «ناقص» (aborted) نگه می‌دارد و COMMIT بی‌صدا
++    // به ROLLBACK تبدیل می‌شود. این پرسش در آن حالت خطا می‌دهد تا هرگز موفقیتِ دروغین گزارش نشود.
++    await tx.execute(sql`select 1`);
++    return out;
++  };
++  let result: T;
++  try {
++    result = await (parent ? parent.tx.transaction(body) : getDb().transaction(body));
++  } catch (e) {
++    scope.closed = true;
++    await txStore.exit(() => runHooks([...scope.rollbackHooks].reverse(), "rollback"));
++    throw e;
++  }
++  scope.closed = true;
++  if (parent) {
++    // تراکنش تودرتو: اثرهای جانبی به تراکنش بیرونی منتقل می‌شوند و فقط با commit نهایی آن اجرا می‌شوند
++    parent.commitHooks.push(...scope.commitHooks);
++    parent.rollbackHooks.push(...scope.rollbackHooks);
++  } else {
++    await txStore.exit(() => runHooks(scope.commitHooks, "after-commit"));
++  }
++  return result;
++}
++
++/** اجرای کار جانبی پس از commit موفق (خارج از تراکنش: فوراً). خطای آن هرگز داده‌ی commit‌شده را باطل نمی‌کند. */
++export async function afterCommit(fn: Hook): Promise<void> {
++  const s = activeScope();
++  if (s) {
++    s.commitHooks.push(fn);
++    return;
++  }
++  await runHooks([fn], "after-commit");
++}
++
++/** جبران اثر غیر-دیتابیسی در صورت rollback (خارج از تراکنش: بی‌اثر) */
++export function onRollback(fn: Hook): void {
++  activeScope()?.rollbackHooks.push(fn);
++}
++
++/** اجرای کد روی اتصال عادی، مستقل از تراکنش جاری (نوشته‌های آن با rollback برنمی‌گردند) */
++export function outsideTransaction<T>(fn: () => T): T {
++  return txStore.exit(fn);
++}
++
+ function lazy<T extends object>(resolve: () => T): T {
+   return new Proxy({} as T, {
+     get(_target, prop) {
+@@ -50,4 +150,5 @@ function lazy<T extends object>(resolve: () => T): T {
+ }
+ 
+ export const pool: Pool = lazy(getPool);
+-export const db: NodePgDatabase = lazy(getDb);
++/** در داخل `withTransaction` همان تراکنش جاری است، وگرنه اتصال عادی */
++export const db: NodePgDatabase = lazy(() => (activeScope()?.tx as unknown as NodePgDatabase | undefined) ?? getDb());
+diff --git a/src/modules/auth/actions.ts b/src/modules/auth/actions.ts
+index 3e08f8f..f7a9373 100644
+--- a/src/modules/auth/actions.ts
++++ b/src/modules/auth/actions.ts
+@@ -5,7 +5,7 @@ import { redirect } from "next/navigation";
+ import { attachReferral } from "@/modules/referral/service";
+ import { escapeHtml } from "@/lib/html";
+ import { and, eq, isNull, sql } from "drizzle-orm";
+-import { db } from "@/db";
++import { db, withTransaction } from "@/db";
+ import { users } from "@/db/schema";
+ import { hashPassword, verifyPassword } from "@/lib/password";
+ import { rateLimit, resetRateLimit } from "@/lib/rate-limit";
+@@ -26,6 +26,9 @@ import { isTeamRole } from "@/modules/tenancy/roles";
+ export type LoginState = { error?: string; /** پس از رمز درست، اگر ورود دومرحله‌ای فعال باشد */ step?: "totp"; expired?: boolean };
+ export type FormState = { error?: string; ok?: boolean; message?: string; devLink?: string; seconds?: number; devCode?: string };
+ 
++/** سیگنال داخلی برای برگرداندن تراکنش پذیرش دعوت */
++class InviteNotAccepted extends Error {}
++
+ const DUMMY_HASH = hashPassword("emz-dummy-password-for-timing");
+ const showDevLinks = () => process.env.NODE_ENV !== "production" || process.env.ALLOW_DEV_OTP === "1";
+ 
+@@ -134,9 +137,12 @@ export async function registerAction(_prev: FormState, formData: FormData): Prom
+       // تا قربانی ایمیل را تأیید کند. پس رمز حساب تأییدنشده با رمز آخرین ثبت‌نام‌کننده جایگزین می‌شود (فقط رمز؛
+       // نام و موبایل دست‌نخورده می‌ماند چون حساب ممکن است مشتریِ ساخته‌شده توسط یک فضای کاری باشد) و کدهای قبلی باطل می‌شوند.
+       const newHash = hashPassword(password);
+-      const [owned] = await db.update(users).set({ passwordHash: newHash }).where(and(eq(users.id, exists.id), isNull(users.emailVerifiedAt))).returning();
++      const owned = await withTransaction(async () => {
++        const [row] = await db.update(users).set({ passwordHash: newHash }).where(and(eq(users.id, exists.id), isNull(users.emailVerifiedAt))).returning();
++        if (row) await logAudit({ action: "auth.pending_reregistered", userId: exists.id, detail: email });
++        return row;
++      });
+       if (!owned) return { error: "با این ایمیل قبلاً ثبت‌نام شده است. وارد شوید یا رمز را بازیابی کنید." };
+-      await logAudit({ action: "auth.pending_reregistered", userId: exists.id, detail: email });
+       await createPendingVerify(owned.id, owned.passwordHash);
+       return verifyRedirect(await sendVerificationEmail(owned, await getOrigin()));
+     }
+@@ -145,11 +151,16 @@ export async function registerAction(_prev: FormState, formData: FormData): Prom
+ 
+   // اولین کاربر ثبت‌نام‌شده روی دیتابیس خالی، «مدیر کل پلتفرم» (پاسخ‌گوی تیکت‌ها) می‌شود
+   // مدیر کل: اولین ثبت‌نام «واقعی» وقتی هنوز هیچ مدیری نیست (حساب‌های ساخته‌شده توسط اتصال خودکار وردپرس مدیر نمی‌شوند)
+-  const [{ n: userCount }] = await db.select({ n: sql<number>`count(*)::int` }).from(users).where(eq(users.role, "admin"));
+-  const [user] = await db.insert(users).values({ name, email, mobile, passwordHash: hashPassword(password), role: userCount === 0 ? "admin" : "user", emailVerifiedAt: emailVerificationRequired() ? null : new Date() }).returning();
+-  const wsId = await createWorkspace(user.id, workspaceName);
+-  await logAudit({ action: "auth.registered", userId: user.id, workspaceId: wsId, detail: email });
+-  await logAudit({ action: "workspace.created", userId: user.id, workspaceId: wsId, detail: workspaceName });
++  // اتمی: حساب کاربری + فضای کاری (عضویت مالک، تنظیمات، قالب‌های نمونه) + لاگ‌ها یک واحدند؛
++  // اگر ساخت فضای کاری شکست بخورد، حساب هم ساخته نمی‌شود و کاربر «بدون فضای کاری» نمی‌ماند.
++  const { user, wsId } = await withTransaction(async () => {
++    const [{ n: userCount }] = await db.select({ n: sql<number>`count(*)::int` }).from(users).where(eq(users.role, "admin"));
++    const [created] = await db.insert(users).values({ name, email, mobile, passwordHash: hashPassword(password), role: userCount === 0 ? "admin" : "user", emailVerifiedAt: emailVerificationRequired() ? null : new Date() }).returning();
++    const id = await createWorkspace(created.id, workspaceName);
++    await logAudit({ action: "auth.registered", userId: created.id, workspaceId: id, detail: email });
++    await logAudit({ action: "workspace.created", userId: created.id, workspaceId: id, detail: workspaceName });
++    return { user: created, wsId: id };
++  });
+   // دعوت از دوستان: کد از فرم یا کوکی لینک دعوت (/r/CODE) خوانده می‌شود؛ خطا هرگز ثبت‌نام را مختل نمی‌کند
+   const jar = await cookies();
+   const refCode = String(formData.get("ref") || "").trim() || jar.get("amz_ref")?.value || "";
+@@ -229,16 +240,20 @@ export async function forgotPasswordAction(_prev: FormState, formData: FormData)
+ 
+   const [user] = await db.select().from(users).where(eq(users.email, email));
+   if (!user) return generic;
+-  const token = await createResetToken(user.id, 2);
+-  const link = `${await getOrigin()}/reset/${token}`;
+   const ms = await getMemberships(user.id);
++  // ساخت توکن + لاگ ممیزی اتمی‌اند؛ ایمیل (کار شبکه‌ای) پس از commit ارسال می‌شود
++  const token = await withTransaction(async () => {
++    const t = await createResetToken(user.id, 2);
++    await logAudit({ action: "auth.password_reset", userId: user.id, workspaceId: ms[0]?.workspaceId ?? 0, detail: "درخواست بازیابی" });
++    return t;
++  });
++  const link = `${await getOrigin()}/reset/${token}`;
+   await sendMail({
+     to: user.email,
+     subject: "بازیابی رمز عبور",
+     html: `<div dir="rtl"><p>${escapeHtml(user.name)} عزیز، برای تعیین رمز عبور جدید روی لینک زیر بزنید (تا ۲ ساعت معتبر است):</p><p><a href="${link}">${link}</a></p><p>اگر شما این درخواست را نداده‌اید، این ایمیل را نادیده بگیرید.</p></div>`,
+     workspaceId: ms[0]?.workspaceId ?? 0,
+   });
+-  await logAudit({ action: "auth.password_reset", userId: user.id, workspaceId: ms[0]?.workspaceId ?? 0, detail: "درخواست بازیابی" });
+   return showDevLinks() ? { ...generic, devLink: link } : generic;
+ }
+ 
+@@ -249,9 +264,13 @@ export async function resetPasswordAction(_prev: FormState, formData: FormData):
+   if (password !== String(formData.get("confirm") || "")) return { error: "تکرار رمز عبور یکسان نیست" };
+   const bad = passwordProblem(password);
+   if (bad) return { error: bad };
+-  const userId = await consumeResetToken(token, password);
++  // مصرف توکن + تغییر رمز + لاگ ممیزی یک واحد اتمی‌اند
++  const userId = await withTransaction(async () => {
++    const id = await consumeResetToken(token, password);
++    if (id) await logAudit({ action: "auth.password_reset", userId: id, detail: "رمز جدید تعیین شد" });
++    return id;
++  });
+   if (!userId) return { error: "این لینک نامعتبر است یا مهلت آن تمام شده. دوباره درخواست دهید." };
+-  await logAudit({ action: "auth.password_reset", userId, detail: "رمز جدید تعیین شد" });
+   redirect("/login?reset=1");
+ }
+ 
+@@ -261,8 +280,9 @@ export async function acceptInviteAction(_prev: FormState, formData: FormData):
+   const inv = await findInvite(token);
+   if (!inv) return { error: "دعوت‌نامه نامعتبر است یا مهلت آن تمام شده" };
+ 
+-  let [user] = await db.select().from(users).where(eq(users.email, inv.email));
+-  if (!user) {
++  const [existingUser] = await db.select().from(users).where(eq(users.email, inv.email));
++  let newAccount: { name: string; mobile: string; password: string } | null = null;
++  if (!existingUser) {
+     const name = String(formData.get("name") || "").trim().slice(0, 100);
+     const mobile = String(formData.get("mobile") || "").trim();
+     const password = String(formData.get("password") || "");
+@@ -270,17 +290,32 @@ export async function acceptInviteAction(_prev: FormState, formData: FormData):
+     if (!MOBILE_RE.test(mobile)) return { error: "موبایل باید به‌صورت 09xxxxxxxxx باشد" };
+     const bad = passwordProblem(password);
+     if (bad) return { error: bad };
+-    [user] = await db.insert(users).values({ name, email: inv.email, mobile, passwordHash: hashPassword(password), role: "user", emailVerifiedAt: new Date() }).returning();
++    newAccount = { name, mobile, password };
+   } else {
+     // حساب موجود: باید همان کاربر لاگین باشد (جلوگیری از پذیرش دعوت با لینک لورفته)
+     const { getCurrentUser } = await import("./session");
+     const cur = await getCurrentUser();
+-    if (!cur || cur.id !== user.id) return { error: "برای پذیرش دعوت ابتدا با همین ایمیل وارد شوید." };
++    if (!cur || cur.id !== existingUser.id) return { error: "برای پذیرش دعوت ابتدا با همین ایمیل وارد شوید." };
+   }
+-  const res = await acceptInvite(token, user.id);
+-  if (!res) return { error: "پذیرش دعوت ممکن نشد" };
+-  await createSession(user.id, user.passwordHash);
+-  await setActiveWorkspaceCookie(res.workspaceId);
+-  await logAudit({ action: "member.joined", userId: user.id, workspaceId: res.workspaceId, detail: user.email });
++
++  // اتمی: ساخت حساب (در صورت نیاز) + مصرف دعوت‌نامه + عضویت + لاگ؛ اگر پذیرش دعوت ممکن نشود حساب هم ساخته نمی‌شود
++  let joined: { user: typeof users.$inferSelect; workspaceId: number } | null;
++  try {
++    joined = await withTransaction(async () => {
++      let user = existingUser;
++      if (newAccount) {
++        [user] = await db.insert(users).values({ name: newAccount.name, email: inv.email, mobile: newAccount.mobile, passwordHash: hashPassword(newAccount.password), role: "user", emailVerifiedAt: new Date() }).returning();
++      }
++      const res = await acceptInvite(token, user.id);
++      if (!res) throw new InviteNotAccepted();
++      await logAudit({ action: "member.joined", userId: user.id, workspaceId: res.workspaceId, detail: user.email });
++      return { user, workspaceId: res.workspaceId };
++    });
++  } catch (e) {
++    if (e instanceof InviteNotAccepted) return { error: "پذیرش دعوت ممکن نشد" };
++    throw e;
++  }
++  await createSession(joined.user.id, joined.user.passwordHash);
++  await setActiveWorkspaceCookie(joined.workspaceId);
+   redirect("/admin");
+ }
+diff --git a/src/modules/auth/tokens.ts b/src/modules/auth/tokens.ts
+index d82aab6..9979746 100644
+--- a/src/modules/auth/tokens.ts
++++ b/src/modules/auth/tokens.ts
+@@ -1,6 +1,6 @@
+ import crypto from "node:crypto";
+ import { and, eq, gt, isNull, sql } from "drizzle-orm";
+-import { db } from "@/db";
++import { db, withTransaction } from "@/db";
+ import { passwordResets, users } from "@/db/schema";
+ import { hashPassword, sha256 } from "@/lib/password";
+ 
+@@ -21,17 +21,26 @@ export async function findResetToken(plain: string) {
+   return row ?? null;
+ }
+ 
+-/** تعیین رمز جدید؛ همه‌ی نشست‌های قبلی (به‌دلیل تغییر hash) باطل می‌شوند */
++/**
++ * تعیین رمز جدید؛ همه‌ی نشست‌های قبلی (به‌دلیل تغییر hash) باطل می‌شوند.
++ * اتمی: «مصرف توکن» و «تغییر رمز» یک واحدند؛ اگر رمز ذخیره نشود، توکن سوخته نمی‌شود و کاربر می‌تواند دوباره تلاش کند.
++ */
+ export async function consumeResetToken(plain: string, newPassword: string): Promise<number | null> {
+   const row = await findResetToken(plain);
+   if (!row) return null;
+-  const used = await db
+-    .update(passwordResets)
+-    .set({ usedAt: new Date() })
+-    .where(and(eq(passwordResets.id, row.id), isNull(passwordResets.usedAt)))
+-    .returning({ id: passwordResets.id });
+-  if (used.length === 0) return null;
+-  await db.update(users)// دریافت لینک در صندوق ایمیل، خودش مالکیت ایمیل را ثابت می‌کند
+-    .set({ passwordHash: hashPassword(newPassword), emailVerifiedAt: sql`coalesce(${users.emailVerifiedAt}, now())` }).where(eq(users.id, row.userId));
+-  return row.userId;
++  const newHash = hashPassword(newPassword);
++  return withTransaction(async () => {
++    const used = await db
++      .update(passwordResets)
++      .set({ usedAt: new Date() })
++      .where(and(eq(passwordResets.id, row.id), isNull(passwordResets.usedAt)))
++      .returning({ id: passwordResets.id });
++    if (used.length === 0) return null;
++    await db
++      .update(users)
++      // دریافت لینک در صندوق ایمیل، خودش مالکیت ایمیل را ثابت می‌کند
++      .set({ passwordHash: newHash, emailVerifiedAt: sql`coalesce(${users.emailVerifiedAt}, now())` })
++      .where(eq(users.id, row.userId));
++    return row.userId;
++  });
+ }
+diff --git a/src/modules/contracts/service.ts b/src/modules/contracts/service.ts
+index 9cf0265..d8ddd98 100644
+--- a/src/modules/contracts/service.ts
++++ b/src/modules/contracts/service.ts
+@@ -1,5 +1,5 @@
+ import { and, asc, desc, eq, gte, ilike, inArray, lt, ne, or, sql } from "drizzle-orm";
+-import { db } from "@/db";
++import { db, withTransaction } from "@/db";
+ import { contracts, contractSigners, users, templates, auditLogs, otpCodes, shortLinks, signingLinks, workspaceMembers, workspaces, contractFieldValues, contractAmendments, amendmentSigners, contractRevisions, contractComments, contractApprovals } from "@/db/schema";
+ import { deleteAllAttachments } from "@/modules/attachments/service";
+ import { notifyUser } from "@/modules/inbox/service";
+@@ -122,16 +122,30 @@ export async function announceContract(contractId: number) {
+   });
+ }
+ 
++/**
++ * صدور قرارداد؛ کاملاً اتمی.
++ *
++ * همه‌ی نوشتن‌های دیتابیس (مصرف سهمیه/اعتبار کیف پول، ردیف قرارداد، متن نهایی، نسخه‌ی اول، امضاکنندگان، لاگ ممیزی)
++ * در «یک» تراکنش انجام می‌شود. اگر هر مرحله شکست بخورد، PostgreSQL همه را برمی‌گرداند:
++ *  - ردیف نیمه‌کاره‌ی «TMP-… با متن خالی و وضعیت sent» هرگز باقی نمی‌ماند،
++ *  - اعتبار کیف پول مصرف‌شده خودکار (با همان rollback) برمی‌گردد، بدون نیاز به «release» دستی،
++ *  - وب‌هوک‌های صدور فقط پس از commit ارسال می‌شوند.
++ * اعلان به اولین امضاکننده (ایمیل/لینک/پیامک) و پاداش دعوت، کارهای شبکه‌ای پس از commit هستند؛
++ * شکست آن‌ها قرارداد صادرشده را باطل نمی‌کند و در لاگ ممیزی ثبت می‌شود (یادآوری خودکار دوباره تلاش می‌کند).
++ */
+ export async function issueContract(p: IssueParams): Promise<number> {
+   const [customer] = await db.select().from(users).where(eq(users.id, p.customerId));
+   if (!customer) throw new Error("کاربر یافت نشد");
+   // ایزولاسیون مستاجر: مشتری و همه‌ی امضاکنندگان باید عضو همین فضای کاری باشند
+   await assertUsersInWorkspace(p.workspaceId, [p.customerId, ...(p.extraSigners ?? []).map((x) => x.userId)]);
+-  // سقف ماهانه‌ی طرح اشتراک (پیش‌نویس‌ها سهمیه مصرف نمی‌کنند)
+-  // سقف ماهانه‌ی طرح (یا اعتبار قرارداد کیف پول) و احراز هویت قراردادهای پرمبلغ؛ پیش‌نویس‌ها سهمیه مصرف نمی‌کنند
+-  const quota = p.draft ? null : await acquireIssueQuota(p.workspaceId, 1, { contractValue: p.contractValue });
+-  try {
+-    const cfg = await getAllSettings(p.workspaceId);
++
++  const cfg = await getAllSettings(p.workspaceId);
++  const expiresAt = p.draft ? null : await resolveExpiry(p.expiryDays, p.workspaceId);
++
++  const createdId = await withTransaction(async () => {
++    // سقف ماهانه‌ی طرح (یا اعتبار قرارداد کیف پول) و احراز هویت قراردادهای پرمبلغ؛ پیش‌نویس‌ها سهمیه مصرف نمی‌کنند.
++    // مصرف اعتبار داخل همین تراکنش است: با شکست مراحل بعد، خودبه‌خود برگردانده می‌شود.
++    if (!p.draft) await acquireIssueQuota(p.workspaceId, 1, { contractValue: p.contractValue });
+ 
+     const [created] = await db
+       .insert(contracts)
+@@ -151,7 +165,7 @@ export async function issueContract(p: IssueParams): Promise<number> {
+         termDays: p.termDays && p.termDays > 0 ? Math.min(Math.round(p.termDays), 36500) : null,
+         renewalNoticeDays: p.renewalNoticeDays && p.renewalNoticeDays > 0 ? Math.min(Math.round(p.renewalNoticeDays), 365) : 30,
+         publishedAt: p.draft ? null : new Date(),
+-        expiresAt: p.draft ? null : await resolveExpiry(p.expiryDays, p.workspaceId),
++        expiresAt,
+       })
+       .returning();
+ 
+@@ -185,15 +199,20 @@ export async function issueContract(p: IssueParams): Promise<number> {
+       userId: p.createdBy ?? customer.id,
+       detail: `${number} — ${steps.map((s, i) => `${i + 1}. ${s.label}`).join(" ← ")}`,
+     });
+-
+-    if (!p.draft) await announceContract(created.id);
+-    if (!p.draft) await qualifyReferralForWorkspace(p.workspaceId).catch(() => undefined);
+     return created.id;
+-  } catch (e) {
+-    // صدور انجام نشد: اعتبار مصرف‌شده برگردانده می‌شود
+-    await quota?.release();
+-    throw e;
++  });
++
++  // ───── پس از commit: اعلان به امضاکننده‌ی اول و پاداش دعوت (شبکه‌ای؛ جدا از اتمی بودن صدور) ─────
++  if (!p.draft) {
++    try {
++      await announceContract(createdId);
++    } catch (e) {
++      console.error("[contract:announce]", e);
++      await logAudit({ action: "contract.announce_failed", workspaceId: p.workspaceId, contractId: createdId, detail: (e instanceof Error ? e.message : "خطای ناشناخته").slice(0, 300), actor: "system" }).catch(() => undefined);
++    }
++    await qualifyReferralForWorkspace(p.workspaceId).catch(() => undefined);
+   }
++  return createdId;
+ }
+ 
+ /** ذخیره‌ی تغییرات پیش‌نویس (نسخه‌ی نهایی هرگز قابل ویرایش نیست) */
+diff --git a/src/modules/install/actions.ts b/src/modules/install/actions.ts
+index f9ccee1..00fff75 100644
+--- a/src/modules/install/actions.ts
++++ b/src/modules/install/actions.ts
+@@ -5,7 +5,6 @@ import { rateLimit } from "@/lib/rate-limit";
+ import { getOrigin, getRequestInfo } from "@/lib/request";
+ import { createSession } from "@/modules/auth/session";
+ import { setActiveWorkspaceCookie } from "@/modules/tenancy/context";
+-import { ensureLandingDefaults } from "@/modules/landing/service";
+ import {
+   applySchema,
+   buildDatabaseUrl,
+@@ -78,7 +77,6 @@ export async function installAccountAction(input: AccountInput, installKey?: str
+   try {
+     const created = await createFirstAdmin(input);
+     if (!created) return { ok: false, error: "سامانه قبلاً نصب شده است." };
+-    await ensureLandingDefaults(input.siteName.trim());
+     await createSession(created.userId, created.passwordHash);
+     await setActiveWorkspaceCookie(created.workspaceId);
+   } catch (e) {
+diff --git a/src/modules/install/service.ts b/src/modules/install/service.ts
+index a628260..47bc1b0 100644
+--- a/src/modules/install/service.ts
++++ b/src/modules/install/service.ts
+@@ -2,11 +2,12 @@ import crypto from "node:crypto";
+ import { Pool } from "pg";
+ import { sql } from "drizzle-orm";
+ import { getConfig, hasInstallLock, storageWritable, writeConfig, writeInstallLock } from "@/lib/config";
+-import { db, getPool } from "@/db";
++import { db, getPool, withTransaction } from "@/db";
+ import { users } from "@/db/schema";
+ import { hashPassword } from "@/lib/password";
+ import { createWorkspace, EMAIL_RE } from "@/modules/tenancy/service";
+ import { saveSettings } from "@/modules/settings/service";
++import { ensureLandingDefaults } from "@/modules/landing/service";
+ import { SCHEMA_ALTER, SCHEMA_CREATE } from "./schema-sql";
+ 
+ /* ───────── وضعیت نصب ───────── */
+@@ -226,21 +227,30 @@ export function validateAccount(a: AccountInput): string | null {
+   return passwordProblem(a.password);
+ }
+ 
+-/** ساخت مدیر کل + فضای کاری اصلی؛ با قفل دیتابیس، فقط یک نصب هم‌زمان می‌تواند موفق شود */
++/**
++ * ساخت مدیر کل + فضای کاری اصلی + تنظیمات و صفحه‌ی فرود پیش‌فرض؛ با قفل دیتابیس، فقط یک نصب هم‌زمان می‌تواند موفق شود.
++ *
++ * اتمی: همه‌ی مراحل در «یک» تراکنش‌اند. اگر هر مرحله (مثلاً ساخت فضای کاری) خطا بدهد، مدیر هم ساخته نمی‌شود؛
++ * در نتیجه سامانه هرگز در حالت «مدیر بدون فضای کاری» که نصب را برای همیشه قفل می‌کند (چون کاربر وجود دارد) نمی‌ماند
++ * و کاربر می‌تواند نصب را دوباره امتحان کند. قفل مشاوره‌ای تا بعد از commit نگه داشته می‌شود.
++ */
+ export async function createFirstAdmin(a: AccountInput): Promise<{ userId: number; passwordHash: string; workspaceId: number } | null> {
+   const client = await getPool().connect();
+   try {
+     await client.query("select pg_advisory_lock(727002)");
+-    const [{ n }] = await db.select({ n: sql<number>`count(*)::int` }).from(users);
+-    if (n > 0) return null;
+     const passwordHash = hashPassword(a.password);
+-    const [user] = await db
+-      .insert(users)
+-      .values({ name: a.name.trim().slice(0, 100), email: a.email.trim().toLowerCase(), mobile: a.mobile.trim(), passwordHash, role: "admin", emailVerifiedAt: new Date() })
+-      .returning();
+-    const workspaceId = await createWorkspace(user.id, a.siteName.trim());
+-    await saveSettings({ site_name: a.siteName.trim().slice(0, 40), admin_email: user.email }, workspaceId);
+-    return { userId: user.id, passwordHash, workspaceId };
++    return await withTransaction(async () => {
++      const [{ n }] = await db.select({ n: sql<number>`count(*)::int` }).from(users);
++      if (n > 0) return null;
++      const [user] = await db
++        .insert(users)
++        .values({ name: a.name.trim().slice(0, 100), email: a.email.trim().toLowerCase(), mobile: a.mobile.trim(), passwordHash, role: "admin", emailVerifiedAt: new Date() })
++        .returning();
++      const workspaceId = await createWorkspace(user.id, a.siteName.trim());
++      await saveSettings({ site_name: a.siteName.trim().slice(0, 40), admin_email: user.email }, workspaceId);
++      await ensureLandingDefaults(a.siteName.trim());
++      return { userId: user.id, passwordHash, workspaceId };
++    });
+   } finally {
+     await client.query("select pg_advisory_unlock(727002)").catch(() => undefined);
+     client.release();
+diff --git a/src/modules/signing/finalize.ts b/src/modules/signing/finalize.ts
+index bc7ed27..942a2be 100644
+--- a/src/modules/signing/finalize.ts
++++ b/src/modules/signing/finalize.ts
+@@ -1,6 +1,6 @@
+ import { revalidatePath } from "next/cache";
+ import { and, eq } from "drizzle-orm";
+-import { db } from "@/db";
++import { db, withTransaction } from "@/db";
+ import { contracts, contractSigners, orders } from "@/db/schema";
+ import { getFieldValues, saveFieldValues, type PreparedFields } from "@/modules/fields/service";
+ import { notifyTeam, notifyUser, notifyUsers } from "@/modules/inbox/service";
+@@ -10,13 +10,13 @@ import { escapeHtml } from "@/lib/html";
+ import { fa, faTime } from "@/lib/jalali";
+ import { getRequestInfo } from "@/lib/request";
+ import { logAudit } from "@/modules/audit/service";
+-import { currentSigner, getSigners, type Contract } from "@/modules/contracts/service";
++import { currentSigner, getSigners, type Contract, type SignerRow } from "@/modules/contracts/service";
+ import { sendMail } from "@/modules/mail";
+ import { generateContractPdf, type StoredPdf } from "@/modules/pdf/service";
+ import { getAllSettings } from "@/modules/settings/service";
+ import { emitEvent } from "@/modules/webhooks/service";
+ import { markSigningLinkUsed, notifySigner, revokeSigningLinks } from "./links";
+-import { saveSignatureFile } from "./storage";
++import { deleteSignatureFile, saveSignatureFile } from "./storage";
+ import type { ActionResult } from "./types";
+ 
+ export type SigningVia = "account" | "link";
+@@ -32,9 +32,28 @@ export interface ApplySignatureParams {
+   fieldValues?: PreparedFields["rows"];
+ }
+ 
++type Committed =
++  | { duplicate: true }
++  | { duplicate: false; completed: boolean; signers: SignerRow[]; fingerprint: string; termEndsAt: Date | null };
++
++/** کار جانبیِ پس از commit؛ خطای آن هرگز امضای ثبت‌شده را باطل یا «ناموفق» گزارش نمی‌کند */
++async function bestEffort(label: string, fn: () => Promise<unknown>) {
++  try {
++    await fn();
++  } catch (e) {
++    console.error(`[sign:${label}]`, e);
++  }
++}
++
+ /**
+  * ثبت نهایی یک امضا (هر دو مسیر: حساب کاربری و لینک بدون ثبت‌نام).
+  * پیش‌شرط: هویت امضاکننده (نوبت + OTP) پیش‌تر راستی‌آزمایی شده است.
++ *
++ * اتمی بودن: «امضای این نفر»، مصرف لینک، مقدار فیلدها، لاگ‌های ممیزی و ــ اگر آخرین امضاکننده باشد ــ
++ * «نهایی‌شدن قرارداد» (status/docHash/termEndsAt/سفارش) همگی در یک تراکنش دیتابیس انجام می‌شوند.
++ * هر خطایی در میانه، همه را برمی‌گرداند؛ پس حالت «آخرین نفر امضا کرده ولی قرارداد هنوز sent است» هرگز پدید نمی‌آید.
++ * ردیف قرارداد زیر قفل می‌ماند تا دو امضای همزمان یکدیگر را «ندیده» نگیرند (هیچ‌کدام نهایی‌کننده نشود).
++ * اعلان‌ها، وب‌هوک، PDF و ایمیل (کارهای شبکه‌ای و غیرقابل‌برگشت) فقط پس از commit اجرا می‌شوند.
+  */
+ export async function applySignature(p: ApplySignatureParams): Promise<ActionResult> {
+   const { contract, signer, user } = p;
+@@ -43,51 +62,81 @@ export async function applySignature(p: ApplySignatureParams): Promise<ActionRes
+   const now = new Date();
+   const file = await saveSignatureFile(`c${contractId}-s${signer.id}-${Date.now()}.png`, p.buffer);
+ 
+-  // شرط status='pending' از ثبت امضای تکراری در درخواست‌های همزمان جلوگیری می‌کند
+-  const claimed = await db
+-    .update(contractSigners)
+-    .set({ status: "signed", signedAt: now, ip, userAgent, signatureFile: file, signatureMethod: p.method, otpVerifiedAt: now, mobile: user.mobile })
+-    .where(and(eq(contractSigners.id, signer.id), eq(contractSigners.status, "pending")))
+-    .returning({ id: contractSigners.id });
+-  if (claimed.length === 0) return { ok: false, error: "این قرارداد قبلاً توسط شما امضا شده است" };
+-  await markSigningLinkUsed(signer.id);
+-  if (p.fieldValues?.length) {
+-    await saveFieldValues(contractId, signer.id, p.fieldValues);
+-    await logAudit({ action: "fields.filled", contractId, userId: user.id, detail: `${signer.label}: ${p.fieldValues.map((f) => f.label).join("، ")}` });
++  let committed: Committed;
++  try {
++    committed = await withTransaction(async (): Promise<Committed> => {
++      // سریال‌سازی امضاهای هم‌زمانِ یک قرارداد (بدون مسدودکردن درج‌های وابسته)
++      await db.select({ id: contracts.id }).from(contracts).where(eq(contracts.id, contractId)).for("no key update");
++
++      // شرط status='pending' از ثبت امضای تکراری در درخواست‌های همزمان جلوگیری می‌کند
++      const claimed = await db
++        .update(contractSigners)
++        .set({ status: "signed", signedAt: now, ip, userAgent, signatureFile: file, signatureMethod: p.method, otpVerifiedAt: now, mobile: user.mobile })
++        .where(and(eq(contractSigners.id, signer.id), eq(contractSigners.status, "pending")))
++        .returning({ id: contractSigners.id });
++      if (claimed.length === 0) return { duplicate: true };
++      await markSigningLinkUsed(signer.id);
++      if (p.fieldValues?.length) {
++        await saveFieldValues(contractId, signer.id, p.fieldValues);
++        await logAudit({ action: "fields.filled", contractId, userId: user.id, detail: `${signer.label}: ${p.fieldValues.map((f) => f.label).join("، ")}` });
++      }
++      await logAudit({
++        action: "contract.signed",
++        contractId,
++        userId: user.id,
++        detail: `${signer.label} — ${faTime(now)} — روش: ${p.method === "upload" ? "آپلود تصویر" : "ترسیم"} — ${p.via === "link" ? "از لینک امن (بدون ثبت‌نام)" : "از حساب کاربری"}`,
++      });
++
++      const signers = await getSigners(contractId);
++      emitEvent({
++        event: "contract.signed",
++        contractId,
++        text: `✍️ ${signer.label} (${user.name}) قرارداد ${contract.number} را امضا کرد.`,
++        data: { number: contract.number, signer: signer.label },
++      });
++
++      if (!signers.every((s) => s.status === "signed")) {
++        // نوبت جدید: شمارنده‌ی یادآوری برای امضاکننده‌ی بعدی از صفر شروع می‌شود
++        await db.update(contracts).set({ reminderCount: 0, lastReminderAt: null }).where(eq(contracts.id, contractId));
++        return { duplicate: false, completed: false, signers, fingerprint: "", termEndsAt: null };
++      }
++
++      const fieldRows = await getFieldValues(contractId);
++      const fingerprint = docFingerprint(contract.bodyHtml, signers, fieldRows);
++      const termEndsAt = termEndFor(now, contract.termDays);
++      await db.update(contracts).set({ status: "signed", signedAt: now, docHash: fingerprint, ...(termEndsAt ? { termEndsAt } : {}) }).where(eq(contracts.id, contractId));
++      if (contract.orderId) await db.update(orders).set({ status: "completed" }).where(eq(orders.id, contract.orderId));
++      // لینک‌ها باطل نمی‌شوند: همه «مصرف‌شده»اند و صفحه‌ی «امضا شد» + دانلود PDF تا پایان نشست OTP در دسترس می‌ماند
++      await logAudit({ action: "contract.completed", contractId, userId: user.id, detail: `اثر انگشت سند: ${fingerprint.slice(0, 16)}…` });
++      emitEvent({
++        event: "contract.completed",
++        contractId,
++        text: `✅ قرارداد ${contract.number} — «${contract.title}» توسط همه‌ی طرفین امضا و نهایی شد.`,
++        data: { number: contract.number, title: contract.title },
++      });
++      return { duplicate: false, completed: true, signers, fingerprint, termEndsAt };
++    });
++  } catch (e) {
++    // تراکنش برگشت خورده؛ فایل امضای بی‌صاحب هم پاک می‌شود
++    await deleteSignatureFile(file).catch(() => undefined);
++    throw e;
+   }
+-  await logAudit({
+-    action: "contract.signed",
+-    contractId,
+-    userId: user.id,
+-    detail: `${signer.label} — ${faTime(now)} — روش: ${p.method === "upload" ? "آپلود تصویر" : "ترسیم"} — ${p.via === "link" ? "از لینک امن (بدون ثبت‌نام)" : "از حساب کاربری"}`,
+-  });
+ 
+-  const signers = await getSigners(contractId);
+-  emitEvent({
+-    event: "contract.signed",
+-    contractId,
+-    text: `✍️ ${signer.label} (${user.name}) قرارداد ${contract.number} را امضا کرد.`,
+-    data: { number: contract.number, signer: signer.label },
+-  });
++  if (committed.duplicate) {
++    await deleteSignatureFile(file).catch(() => undefined);
++    return { ok: false, error: "این قرارداد قبلاً توسط شما امضا شده است" };
++  }
++
++  // ───── پس از commit: اعلان‌ها و کارهای شبکه‌ای (هرکدام مستقل و بدون اثر روی نتیجه‌ی امضا) ─────
++  const { signers, fingerprint, termEndsAt } = committed;
++  await bestEffort("notify-team", () =>
++    notifyTeam(contract.workspaceId, { kind: "info", title: `${signer.label} قرارداد ${contract.number} را امضا کرد`, body: `${user.name} — ${contract.title}`, href: `/contracts/${contractId}` }, [contract.createdBy]),
++  );
+ 
+-  // اعلان درون‌برنامه‌ای برای تیم/صادرکننده
+-  await notifyTeam(contract.workspaceId, { kind: "info", title: `${signer.label} قرارداد ${contract.number} را امضا کرد`, body: `${user.name} — ${contract.title}`, href: `/contracts/${contractId}` }, [contract.createdBy]);
+-
+-  if (signers.every((s) => s.status === "signed")) {
+-    const fieldRows = await getFieldValues(contractId);
+-    const fingerprint = docFingerprint(contract.bodyHtml, signers, fieldRows);
+-    const termEndsAt = termEndFor(now, contract.termDays);
+-    await db.update(contracts).set({ status: "signed", signedAt: now, docHash: fingerprint, ...(termEndsAt ? { termEndsAt } : {}) }).where(eq(contracts.id, contractId));
+-    await notifyUsers(signers.map((s) => s.userId), { kind: "success", title: `قرارداد ${contract.number} نهایی شد`, body: `«${contract.title}» توسط همه‌ی طرفین امضا شد.`, href: `/contracts/${contractId}` });
+-    await notifyTeam(contract.workspaceId, { kind: "success", title: `قرارداد ${contract.number} نهایی شد`, body: `«${contract.title}» توسط همه‌ی طرفین امضا شد${termEndsAt ? ` — پایان مدت: ${fa(termEndsAt)}` : ""}.`, href: `/contracts/${contractId}` }, [contract.createdBy]);
+-    if (contract.orderId) await db.update(orders).set({ status: "completed" }).where(eq(orders.id, contract.orderId));
+-    // لینک‌ها باطل نمی‌شوند: همه «مصرف‌شده»اند و صفحه‌ی «امضا شد» + دانلود PDF تا پایان نشست OTP در دسترس می‌ماند
+-    await logAudit({ action: "contract.completed", contractId, userId: user.id, detail: `اثر انگشت سند: ${fingerprint.slice(0, 16)}…` });
+-    emitEvent({
+-      event: "contract.completed",
+-      contractId,
+-      text: `✅ قرارداد ${contract.number} — «${contract.title}» توسط همه‌ی طرفین امضا و نهایی شد.`,
+-      data: { number: contract.number, title: contract.title },
++  if (committed.completed) {
++    await bestEffort("notify-final", async () => {
++      await notifyUsers(signers.map((s) => s.userId), { kind: "success", title: `قرارداد ${contract.number} نهایی شد`, body: `«${contract.title}» توسط همه‌ی طرفین امضا شد.`, href: `/contracts/${contractId}` });
++      await notifyTeam(contract.workspaceId, { kind: "success", title: `قرارداد ${contract.number} نهایی شد`, body: `«${contract.title}» توسط همه‌ی طرفین امضا شد${termEndsAt ? ` — پایان مدت: ${fa(termEndsAt)}` : ""}.`, href: `/contracts/${contractId}` }, [contract.createdBy]);
+     });
+ 
+     // PDF سمت سرور + هش امنیتی؛ خطای ساخت PDF هرگز امضا را باطل نمی‌کند
+@@ -96,24 +145,21 @@ export async function applySignature(p: ApplySignatureParams): Promise<ActionRes
+       pdf = await generateContractPdf(contractId);
+     } catch (e) {
+       console.error("[pdf:generate]", e);
+-      await logAudit({ action: "document.failed", contractId, detail: e instanceof Error ? e.message.slice(0, 200) : "خطای ناشناخته", actor: "system" });
++      await bestEffort("pdf-audit", () => logAudit({ action: "document.failed", contractId, detail: e instanceof Error ? e.message.slice(0, 200) : "خطای ناشناخته", actor: "system" }));
+     }
+-    await mailFinalDocument(contract, signers.map((s) => s.userEmail), pdf, fingerprint);
++    await bestEffort("mail-final", () => mailFinalDocument(contract, signers.map((s) => s.userEmail), pdf, fingerprint));
+   } else {
+     const next = currentSigner(signers);
+-    // نوبت جدید: شمارنده‌ی یادآوری برای امضاکننده‌ی بعدی از صفر شروع می‌شود
+-    await db.update(contracts).set({ reminderCount: 0, lastReminderAt: null }).where(eq(contracts.id, contractId));
+     if (next) {
+       await notifySigner(contractId, next.id, "turn").catch((e) => console.error("[sign:notify-next]", e));
+-      await notifyUser(next.userId, { kind: "action", title: `نوبت امضای شما: ${contract.number}`, body: `«${contract.title}» منتظر امضای شماست.`, href: `/contracts/${contractId}` });
++      await bestEffort("notify-next", () => notifyUser(next.userId, { kind: "action", title: `نوبت امضای شما: ${contract.number}`, body: `«${contract.title}» منتظر امضای شماست.`, href: `/contracts/${contractId}` }));
+     }
+   }
+ 
+   revalidatePath("/dashboard");
+   revalidatePath("/admin");
+   revalidatePath(`/contracts/${contractId}`);
+-  const [fresh] = await db.select({ status: contracts.status }).from(contracts).where(eq(contracts.id, contractId));
+-  return { ok: true, completed: fresh?.status === "signed" };
++  return { ok: true, completed: committed.completed };
+ }
+ 
+ /** ارسال نسخه‌ی نهایی (PDF پیوست + هش) به مدیر و همه‌ی امضاکنندگان */
+diff --git a/src/modules/tenancy/actions.ts b/src/modules/tenancy/actions.ts
+index 3f7e200..e53eab6 100644
+--- a/src/modules/tenancy/actions.ts
++++ b/src/modules/tenancy/actions.ts
+@@ -4,7 +4,7 @@ import { redirect } from "next/navigation";
+ import { escapeHtml } from "@/lib/html";
+ import { revalidatePath } from "next/cache";
+ import { and, eq } from "drizzle-orm";
+-import { db } from "@/db";
++import { db, withTransaction } from "@/db";
+ import { users, workspaceInvites, workspaceMembers } from "@/db/schema";
+ import { requireUser } from "@/modules/auth/session";
+ import { createResetToken } from "@/modules/auth/tokens";
+@@ -37,8 +37,11 @@ export async function createWorkspaceAction(formData: FormData) {
+   const name = String(formData.get("name") || "").trim();
+   if (!rateLimit(`ws:create:${user.id}`, 5, 3600_000).ok) redirect("/admin?denied=1");
+   if (!name) redirect("/admin");
+-  const id = await createWorkspace(user.id, name);
+-  await logAudit({ action: "workspace.created", workspaceId: id, userId: user.id, detail: name });
++  const id = await withTransaction(async () => {
++    const wsId = await createWorkspace(user.id, name);
++    await logAudit({ action: "workspace.created", workspaceId: wsId, userId: user.id, detail: name });
++    return wsId;
++  });
+   await setActiveWorkspaceCookie(id);
+   redirect("/admin");
+ }
+@@ -65,7 +68,12 @@ export async function inviteMemberAction(_prev: TeamState, formData: FormData):
+   } catch (e) {
+     return { error: e instanceof Error ? e.message : "سقف اعضای تیم" };
+   }
+-  const token = await createInvite(admin.workspaceId, email, role, admin.id);
++  // ساخت دعوت‌نامه + لاگ ممیزی اتمی‌اند؛ ارسال ایمیل (کار شبکه‌ای) پس از commit انجام می‌شود
++  const token = await withTransaction(async () => {
++    const t = await createInvite(admin.workspaceId, email, role, admin.id);
++    await logAudit({ action: "member.invited", workspaceId: admin.workspaceId, userId: admin.id, detail: `${email} — ${ROLE_LABELS[role]}` });
++    return t;
++  });
+   const link = `${((await getSetting("app_url", admin.workspaceId)) || (await getOrigin())).replace(/\/+$/, "")}/invite/${token}`;
+   await sendMail({
+     to: email,
+@@ -73,7 +81,6 @@ export async function inviteMemberAction(_prev: TeamState, formData: FormData):
+     html: `<div dir="rtl"><p>${escapeHtml(admin.name)} شما را با نقش «${ROLE_LABELS[role]}» به فضای کاری «${escapeHtml(admin.workspaceName)}» دعوت کرده است.</p><p><a href="${link}">${link}</a></p><p>این دعوت ۷ روز معتبر است.</p></div>`,
+     workspaceId: admin.workspaceId,
+   });
+-  await logAudit({ action: "member.invited", workspaceId: admin.workspaceId, userId: admin.id, detail: `${email} — ${ROLE_LABELS[role]}` });
+   revalidatePath("/admin/team");
+   return { ok: true, message: "دعوت‌نامه ساخته و ایمیل شد. در صورت نیاز لینک را مستقیماً برای فرد بفرستید:", link };
+ }
+@@ -128,12 +135,19 @@ export async function addClientAction(_prev: TeamState, formData: FormData): Pro
+     if (!name) return { error: "نام مشتری را وارد کنید" };
+     if (!/^09\d{9}$/.test(mobile)) return { error: "موبایل باید به‌صورت 09xxxxxxxxx باشد (برای OTP امضا)" };
+   }
+-  const { userId, created, linked } = await ensureClient(admin.workspaceId, { name, email, mobile });
+-  if (!created && !linked) return { error: "این مشتری قبلاً در این فضای کاری ثبت شده است" };
++  // حساب مشتری + عضویت + توکن تعیین رمز + لاگ ممیزی یک واحد اتمی‌اند؛ ایمیل پس از commit ارسال می‌شود
++  const added = await withTransaction(async () => {
++    const r = await ensureClient(admin.workspaceId, { name, email, mobile });
++    if (!r.created && !r.linked) return null;
++    const resetToken = r.created ? await createResetToken(r.userId, 24 * 7) : null;
++    await logAudit({ action: "client.added", workspaceId: admin.workspaceId, userId: admin.id, detail: email });
++    return { created: r.created, resetToken };
++  });
++  if (!added) return { error: "این مشتری قبلاً در این فضای کاری ثبت شده است" };
++  const { created } = added;
+   let link: string | undefined;
+-  if (created) {
+-    const token = await createResetToken(userId, 24 * 7);
+-    link = `${((await getSetting("app_url", admin.workspaceId)) || (await getOrigin())).replace(/\/+$/, "")}/reset/${token}`;
++  if (added.resetToken) {
++    link = `${((await getSetting("app_url", admin.workspaceId)) || (await getOrigin())).replace(/\/+$/, "")}/reset/${added.resetToken}`;
+     await sendMail({
+       to: email,
+       subject: `حساب شما در «${admin.workspaceName}» ساخته شد`,
+@@ -141,7 +155,6 @@ export async function addClientAction(_prev: TeamState, formData: FormData): Pro
+       workspaceId: admin.workspaceId,
+     });
+   }
+-  await logAudit({ action: "client.added", workspaceId: admin.workspaceId, userId: admin.id, detail: email });
+   revalidatePath("/admin/customers");
+   return { ok: true, message: created ? "مشتری افزوده شد و لینک تعیین رمز برایش ایمیل شد." : "حساب موجود به فضای کاری شما اضافه شد.", link: link && showDevLinks() ? link : undefined };
+ }
+diff --git a/src/modules/tenancy/invites.ts b/src/modules/tenancy/invites.ts
+index 1135dbf..0bab3c5 100644
+--- a/src/modules/tenancy/invites.ts
++++ b/src/modules/tenancy/invites.ts
+@@ -1,6 +1,6 @@
+ import crypto from "node:crypto";
+ import { and, eq, gt, isNull } from "drizzle-orm";
+-import { db } from "@/db";
++import { db, withTransaction } from "@/db";
+ import { users, workspaceInvites, workspaceMembers, workspaces } from "@/db/schema";
+ import { sha256 } from "@/lib/password";
+ import { isTeamRole } from "./roles";
+@@ -34,23 +34,28 @@ export async function findInvite(plain: string) {
+   return row ?? null;
+ }
+ 
+-/** پذیرش دعوت: فقط برای حسابی با همان ایمیل دعوت‌شده. نقش موجود بالاتر هرگز تنزل نمی‌یابد. */
++/**
++ * پذیرش دعوت: فقط برای حسابی با همان ایمیل دعوت‌شده. نقش موجود بالاتر هرگز تنزل نمی‌یابد.
++ * اتمی: «مصرف دعوت‌نامه» و «ایجاد/ارتقای عضویت» در یک تراکنش‌اند؛ اگر عضویت ثبت نشود، دعوت‌نامه سوخته نمی‌شود.
++ */
+ export async function acceptInvite(plain: string, userId: number): Promise<{ workspaceId: number } | null> {
+   const inv = await findInvite(plain);
+   if (!inv) return null;
+   const [user] = await db.select().from(users).where(eq(users.id, userId));
+   if (!user || user.email.toLowerCase() !== inv.email) return null;
+-  const claimed = await db
+-    .update(workspaceInvites)
+-    .set({ acceptedAt: new Date() })
+-    .where(and(eq(workspaceInvites.id, inv.id), isNull(workspaceInvites.acceptedAt)))
+-    .returning({ id: workspaceInvites.id });
+-  if (claimed.length === 0) return null;
+-  const [existing] = await db
+-    .select()
+-    .from(workspaceMembers)
+-    .where(and(eq(workspaceMembers.workspaceId, inv.workspaceId), eq(workspaceMembers.userId, userId)));
+-  if (!existing) await db.insert(workspaceMembers).values({ workspaceId: inv.workspaceId, userId, role: inv.role });
+-  else if (!isTeamRole(existing.role)) await db.update(workspaceMembers).set({ role: inv.role }).where(eq(workspaceMembers.id, existing.id));
+-  return { workspaceId: inv.workspaceId };
++  return withTransaction(async () => {
++    const claimed = await db
++      .update(workspaceInvites)
++      .set({ acceptedAt: new Date() })
++      .where(and(eq(workspaceInvites.id, inv.id), isNull(workspaceInvites.acceptedAt)))
++      .returning({ id: workspaceInvites.id });
++    if (claimed.length === 0) return null;
++    const [existing] = await db
++      .select()
++      .from(workspaceMembers)
++      .where(and(eq(workspaceMembers.workspaceId, inv.workspaceId), eq(workspaceMembers.userId, userId)));
++    if (!existing) await db.insert(workspaceMembers).values({ workspaceId: inv.workspaceId, userId, role: inv.role });
++    else if (!isTeamRole(existing.role)) await db.update(workspaceMembers).set({ role: inv.role }).where(eq(workspaceMembers.id, existing.id));
++    return { workspaceId: inv.workspaceId };
++  });
+ }
+diff --git a/src/modules/tenancy/service.ts b/src/modules/tenancy/service.ts
+index 6911d97..dc9ac31 100644
+--- a/src/modules/tenancy/service.ts
++++ b/src/modules/tenancy/service.ts
+@@ -1,6 +1,6 @@
+ import crypto from "node:crypto";
+ import { and, asc, eq, inArray } from "drizzle-orm";
+-import { db } from "@/db";
++import { db, withTransaction } from "@/db";
+ import { contracts, templates, users, workspaceMembers, workspaces } from "@/db/schema";
+ import { hashPassword } from "@/lib/password";
+ import { saveSettings } from "@/modules/settings/service";
+@@ -22,14 +22,20 @@ function makeSlug(name: string): string {
+   return `${base || "ws"}-${crypto.randomBytes(3).toString("hex")}`;
+ }
+ 
+-/** ساخت فضای کاری جدید با مالک مشخص + قالب‌های نمونه و تنظیمات اولیه */
++/**
++ * ساخت فضای کاری جدید با مالک مشخص + قالب‌های نمونه و تنظیمات اولیه.
++ * اتمی: فضای کاری، عضویت مالک، تنظیمات و قالب‌ها یا همگی ساخته می‌شوند یا هیچ‌کدام.
++ * اگر داخل تراکنش بزرگ‌تری (ثبت‌نام، نصب، …) صدا زده شود، بخشی از همان تراکنش می‌شود.
++ */
+ export async function createWorkspace(ownerId: number, name: string): Promise<number> {
+   const clean = name.trim().slice(0, 60) || "کسب‌وکار من";
+-  const [ws] = await db.insert(workspaces).values({ name: clean, slug: makeSlug(clean), ownerId }).returning();
+-  await db.insert(workspaceMembers).values({ workspaceId: ws.id, userId: ownerId, role: "owner" });
+-  await saveSettings({ site_name: clean.slice(0, 40) }, ws.id);
+-  await db.insert(templates).values(STARTER_TEMPLATES.map((t) => ({ ...t, workspaceId: ws.id })));
+-  return ws.id;
++  return withTransaction(async () => {
++    const [ws] = await db.insert(workspaces).values({ name: clean, slug: makeSlug(clean), ownerId }).returning();
++    await db.insert(workspaceMembers).values({ workspaceId: ws.id, userId: ownerId, role: "owner" });
++    await saveSettings({ site_name: clean.slice(0, 40) }, ws.id);
++    await db.insert(templates).values(STARTER_TEMPLATES.map((t) => ({ ...t, workspaceId: ws.id })));
++    return ws.id;
++  });
+ }
+ 
+ /** اعضا و مشتریانی که می‌توانند امضاکننده/طرف قرارداد این فضای کاری باشند */
+@@ -64,25 +70,28 @@ export async function ensureClient(
+   input: { name: string; email: string; mobile: string },
+ ): Promise<{ userId: number; created: boolean; linked: boolean }> {
+   const email = input.email.trim().toLowerCase();
+-  let [user] = await db.select().from(users).where(eq(users.email, email));
+-  let created = false;
+-  if (!user) {
+-    [user] = await db
+-      .insert(users)
+-      .values({
+-        name: input.name.trim().slice(0, 100),
+-        email,
+-        mobile: input.mobile.trim(),
+-        passwordHash: hashPassword(crypto.randomBytes(18).toString("hex")),
+-        role: "user",
+-      })
+-      .returning();
+-    created = true;
+-  }
+-  const inserted = await db
+-    .insert(workspaceMembers)
+-    .values({ workspaceId, userId: user.id, role: "client" })
+-    .onConflictDoNothing()
+-    .returning({ id: workspaceMembers.id });
+-  return { userId: user.id, created, linked: inserted.length > 0 };
++  // ساخت حساب + اتصال به فضای کاری در یک تراکنش: حساب بدون عضویت (یتیم) باقی نمی‌ماند
++  return withTransaction(async () => {
++    let [user] = await db.select().from(users).where(eq(users.email, email));
++    let created = false;
++    if (!user) {
++      [user] = await db
++        .insert(users)
++        .values({
++          name: input.name.trim().slice(0, 100),
++          email,
++          mobile: input.mobile.trim(),
++          passwordHash: hashPassword(crypto.randomBytes(18).toString("hex")),
++          role: "user",
++        })
++        .returning();
++      created = true;
++    }
++    const inserted = await db
++      .insert(workspaceMembers)
++      .values({ workspaceId, userId: user.id, role: "client" })
++      .onConflictDoNothing()
++      .returning({ id: workspaceMembers.id });
++    return { userId: user.id, created, linked: inserted.length > 0 };
++  });
+ }
+diff --git a/src/modules/webhooks/service.ts b/src/modules/webhooks/service.ts
+index 59bcd46..3a7b31d 100644
+--- a/src/modules/webhooks/service.ts
++++ b/src/modules/webhooks/service.ts
+@@ -1,7 +1,7 @@
+ import crypto from "node:crypto";
+ import { and, desc, eq } from "drizzle-orm";
+ import { workspaceOfContract } from "@/modules/tenancy/service";
+-import { db } from "@/db";
++import { afterCommit, db } from "@/db";
+ import { webhookDeliveries, webhookEndpoints } from "@/db/schema";
+ 
+ import { assertSafeUrl } from "@/lib/ssrf";
+@@ -92,9 +92,13 @@ async function run(ev: WebhookEvent) {
+   );
+ }
+ 
+-/** ارسال رویداد به همه‌ی مقصدهای فعال؛ هرگز جریان اصلی (امضا/صدور) را مسدود یا خراب نمی‌کند */
++/**
++ * ارسال رویداد به همه‌ی مقصدهای فعال؛ هرگز جریان اصلی (امضا/صدور) را مسدود یا خراب نمی‌کند.
++ * اگر داخل تراکنش صدا زده شود، رویداد فقط پس از commit موفق ارسال می‌شود (و با rollback ارسال نمی‌شود)؛
++ * بنابراین هیچ وب‌هوکی درباره‌ی چیزی که در دیتابیس ثبت نشده بیرون نمی‌رود.
++ */
+ export function emitEvent(ev: WebhookEvent): void {
+-  void run(ev).catch(() => undefined);
++  void afterCommit(() => run(ev).catch(() => undefined));
+ }
+ 
+ /** ارسال آزمایشی به یک مقصد مشخص (برای دکمه‌ی «تست» در پنل) */
+diff --git a/tests/integration/transaction-atomicity.test.ts b/tests/integration/transaction-atomicity.test.ts
+new file mode 100644
+index 0000000..ada4865
+--- /dev/null
++++ b/tests/integration/transaction-atomicity.test.ts
+@@ -0,0 +1,387 @@
++import fs from "node:fs";
++import { Pool } from "pg";
++import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
++import { and, count, eq, like, sql } from "drizzle-orm";
++import { afterCommit, db, inTransaction, onRollback, outsideTransaction, withTransaction } from "@/db";
++import { auditLogs, contractSigners, otpCodes, contracts, passwordResets, signingLinks, users, workspaceInvites, workspaceMembers, workspaces } from "@/db/schema";
++import { hashPassword } from "@/lib/password";
++import { signaturesDir } from "@/lib/storage-paths";
++import { acceptInviteAction, registerAction, resetPasswordAction } from "@/modules/auth/actions";
++import { createResetToken } from "@/modules/auth/tokens";
++import { issueContract } from "@/modules/contracts/service";
++import { createFirstAdmin } from "@/modules/install/service";
++import { SCHEMA_CREATE } from "@/modules/install/schema-sql";
++import { createInvite } from "@/modules/tenancy/invites";
++import { createWorkspace, ensureClient } from "@/modules/tenancy/service";
++import { getWallet, grantCredits } from "@/modules/wallet/service";
++import { form, freshBrowser, run, uniq } from "../helpers";
++import { guestSignWith, newContract, setupWorkspace } from "../flows";
++
++/**
++ * CR-01 / DB-02 / DB-03: جریان‌های چندمرحله‌ای باید اتمی باشند.
++ * خطا با «تریگر دیتابیس» شبیه‌سازی می‌شود (خطای واقعی PostgreSQL در میانه‌ی کار، نه mock):
++ * پس از شکست، هیچ اثر نیمه‌کاره‌ای نباید در دیتابیس (یا روی دیسک) باقی بماند و تلاش دوم باید سالم کار کند.
++ */
++
++const faults: { table: string; name: string }[] = [];
++async function injectFault(table: string, when: string) {
++  const name = `emz_fault_${faults.length}`;
++  await db.execute(sql.raw(`create or replace function emz_fault() returns trigger language plpgsql as $$ begin raise exception 'simulated failure'; end $$`));
++  await db.execute(sql.raw(`create trigger ${name} before insert or update on ${table} for each row when (${when}) execute function emz_fault()`));
++  faults.push({ table, name });
++}
++async function clearFaults() {
++  while (faults.length) {
++    const f = faults.pop()!;
++    await db.execute(sql.raw(`drop trigger if exists ${f.name} on ${f.table}`));
++  }
++}
++afterEach(clearFaults);
++beforeEach(() => freshBrowser());
++
++const userByEmail = async (email: string) => (await db.select().from(users).where(eq(users.email, email)))[0];
++const newUserValues = (email: string) => ({ name: "کاربر", email, mobile: "09120000001", passwordHash: hashPassword("Passw0rdX9"), role: "user" as const, emailVerifiedAt: new Date() });
++const FAIL = /simulated failure/;
++/** فاصله‌ی مجاز ارسال دوباره‌ی OTP برای تلاش دوم امضاکننده برداشته می‌شود */
++const resetOtp = (signerId: number) => db.delete(otpCodes).where(eq(otpCodes.signerId, signerId));
++/** drizzle خطای اصلی PostgreSQL را در cause می‌گذارد؛ هم پیام و هم cause بررسی می‌شود */
++async function expectFault(p: Promise<unknown>) {
++  const err = (await p.then(() => null, (e: unknown) => e ?? new Error("rejected"))) as { message?: string; cause?: { message?: string } } | null;
++  expect(err, "عملیات باید با خطای شبیه‌سازی‌شده شکست بخورد").not.toBeNull();
++  expect(`${err?.message ?? ""} ${err?.cause?.message ?? ""}`).toMatch(FAIL);
++}
++
++let owner: { id: number };
++let wsId: number;
++beforeAll(async () => {
++  ({ owner, wsId } = await setupWorkspace("فضای اتمیک"));
++});
++
++describe("زیرساخت withTransaction (تراکنش محیطی)", () => {
++  it("خطا = rollback کامل؛ موفقیت = commit", async () => {
++    const bad = `${uniq("rb")}@example.com`;
++    await expect(
++      withTransaction(async () => {
++        await db.insert(users).values(newUserValues(bad));
++        throw new Error("boom");
++      }),
++    ).rejects.toThrow("boom");
++    expect(await userByEmail(bad)).toBeUndefined();
++
++    const good = `${uniq("cm")}@example.com`;
++    await withTransaction(async () => {
++      await db.insert(users).values(newUserValues(good));
++    });
++    expect(await userByEmail(good)).toBeDefined();
++  });
++
++  it("db در عمق کد خودکار به تراکنش می‌پیوندد و تا commit برای بیرون نامرئی است", async () => {
++    const email = `${uniq("amb")}@example.com`;
++    const find = () => db.select().from(users).where(eq(users.email, email));
++    let inside = 0;
++    let outside = -1;
++    await withTransaction(async () => {
++      expect(inTransaction()).toBe(true);
++      await db.insert(users).values(newUserValues(email));
++      inside = (await find()).length;
++      outside = (await outsideTransaction(async () => find())).length;
++    });
++    expect(inTransaction()).toBe(false);
++    expect(inside).toBe(1);
++    expect(outside).toBe(0);
++    expect((await find()).length).toBe(1);
++  });
++
++  it("afterCommit فقط پس از commit اجرا می‌شود و onRollback فقط هنگام برگشت", async () => {
++    const events: string[] = [];
++    await withTransaction(async () => {
++      await afterCommit(() => void events.push("commit-A"));
++      onRollback(() => void events.push("rollback-A"));
++      expect(events).toEqual([]); // هنوز هیچ اثر جانبی اجرا نشده
++    });
++    await withTransaction(async () => {
++      await afterCommit(() => void events.push("commit-B"));
++      onRollback(() => void events.push("rollback-B"));
++      throw new Error("x");
++    }).catch(() => undefined);
++    expect(events).toEqual(["commit-A", "rollback-B"]);
++    // خارج از تراکنش فوراً اجرا می‌شود
++    await afterCommit(() => void events.push("now"));
++    expect(events.at(-1)).toBe("now");
++  });
++
++  it("تودرتو = SAVEPOINT: شکست داخلی فقط خودش را برمی‌گرداند و اثر جانبی‌اش دور ریخته می‌شود", async () => {
++    const a = `${uniq("na")}@example.com`;
++    const b = `${uniq("nb")}@example.com`;
++    const events: string[] = [];
++    await withTransaction(async () => {
++      await db.insert(users).values(newUserValues(a));
++      await withTransaction(async () => {
++        await db.insert(users).values(newUserValues(b));
++        await afterCommit(() => void events.push("inner"));
++        throw new Error("inner");
++      }).catch(() => undefined);
++    });
++    expect(await userByEmail(a)).toBeDefined();
++    expect(await userByEmail(b)).toBeUndefined();
++    expect(events).toEqual([]);
++  });
++
++  it("خطای SQL بلعیده‌شده، موفقیت دروغین نمی‌سازد (سد تراکنش ناقص)", async () => {
++    const email = `${uniq("sw")}@example.com`;
++    await expect(
++      withTransaction(async () => {
++        await db.insert(users).values(newUserValues(email));
++        try {
++          await db.execute(sql`select * from table_that_does_not_exist`);
++        } catch {
++          /* بلعیده شد */
++        }
++      }),
++    ).rejects.toThrow();
++    expect(await userByEmail(email)).toBeUndefined();
++  });
++
++  it("ادامه‌ی ناهمگام جامانده پس از پایان تراکنش از اتصال بسته‌شده استفاده نمی‌کند", async () => {
++    let leaked: (() => Promise<unknown>) | undefined;
++    await withTransaction(async () => {
++      leaked = () => db.execute(sql`select 1 as ok`);
++    });
++    await expect(leaked!()).resolves.toBeDefined();
++  });
++});
++
++describe("CR-01: امضای نهایی اتمیک است", () => {
++  const sigFiles = (contractId: number, signerId: number) => fs.readdirSync(signaturesDir()).filter((f) => f.startsWith(`c${contractId}-s${signerId}-`));
++  const auditCount = async (contractId: number, action: string) =>
++    (await db.select({ n: count() }).from(auditLogs).where(and(eq(auditLogs.contractId, contractId), eq(auditLogs.action, action))))[0].n;
++
++  it("خطا هنگام نهایی‌سازی: امضای آخرین نفر هم برمی‌گردد (نه «امضاشده» با قرارداد sent) و تلاش دوم کامل می‌شود", async () => {
++    const { id, signers } = await newContract(wsId, owner.id);
++    const [first, last] = signers;
++    expect((await guestSignWith(first.id)).result.ok).toBe(true);
++
++    // شکست در آخرین گام: لاگ «contract.completed» (پس از به‌روزرسانی وضعیت قرارداد)
++    await injectFault("audit_logs", `NEW.contract_id = ${id} AND NEW.action = 'contract.completed'`);
++    await expectFault(guestSignWith(last.id));
++
++    const [lastRow] = await db.select().from(contractSigners).where(eq(contractSigners.id, last.id));
++    expect(lastRow.status).toBe("pending");
++    expect(lastRow.signedAt).toBeNull();
++    expect(lastRow.signatureFile).toBeNull();
++    const [c] = await db.select().from(contracts).where(eq(contracts.id, id));
++    expect(c.status).toBe("sent");
++    expect(c.docHash).toBeNull();
++    expect(c.signedAt).toBeNull();
++    expect(await auditCount(id, "contract.signed")).toBe(1); // فقط نفر اول
++    expect(await auditCount(id, "contract.completed")).toBe(0);
++    expect(sigFiles(id, last.id)).toEqual([]); // فایل امضای بی‌صاحب پاک شده است
++
++    await clearFaults();
++    await resetOtp(last.id);
++    const retry = await guestSignWith(last.id);
++    expect(retry.result.ok, retry.result.error).toBe(true);
++    expect(retry.result.completed).toBe(true);
++    const [done] = await db.select().from(contracts).where(eq(contracts.id, id));
++    expect(done.status).toBe("signed");
++    expect(done.docHash).toMatch(/^[a-f0-9]{64}$/);
++    expect(await auditCount(id, "contract.completed")).toBe(1);
++    expect((await db.select().from(contractSigners).where(eq(contractSigners.contractId, id))).every((s) => s.status === "signed")).toBe(true);
++  });
++
++  it("خطا در میانه‌ی ثبت امضا: وضعیت امضاکننده و «مصرف لینک» هر دو برمی‌گردند", async () => {
++    const { id, signers } = await newContract(wsId, owner.id);
++    const [first] = signers;
++    await injectFault("audit_logs", `NEW.contract_id = ${id} AND NEW.action = 'contract.signed'`);
++    await expectFault(guestSignWith(first.id));
++
++    const [row] = await db.select().from(contractSigners).where(eq(contractSigners.id, first.id));
++    expect(row.status).toBe("pending");
++    const links = await db.select().from(signingLinks).where(eq(signingLinks.signerId, first.id));
++    expect(links.length).toBeGreaterThan(0);
++    expect(links.every((l) => l.usedAt === null)).toBe(true);
++    expect(sigFiles(id, first.id)).toEqual([]);
++
++    await clearFaults();
++    await resetOtp(first.id);
++    expect((await guestSignWith(first.id)).result.ok).toBe(true);
++  });
++});
++
++describe("DB-02: صدور قرارداد تراکنشی است", () => {
++  it("خطا در میانه‌ی صدور: هیچ ردیف TMP/نیمه‌کاره‌ای (قرارداد، امضاکننده، نسخه) باقی نمی‌ماند", async () => {
++    const client = await ensureClient(wsId, { name: "مشتری", email: `${uniq("i")}@example.com`, mobile: "09121110003" });
++    const before = (await db.select({ n: count() }).from(contracts).where(eq(contracts.workspaceId, wsId)))[0].n;
++
++    // شکست در آخرین گام صدور (لاگ ممیزی) — بعد از درج قرارداد، متن، نسخه و امضاکنندگان
++    await injectFault("audit_logs", `NEW.action = 'contract.issued'`);
++    await expectFault(issueContract({ workspaceId: wsId, title: "قرارداد ناموفق", bodyHtml: "<p>متن آزمایشی قرارداد ناموفق برای آزمون.</p>", customerId: client.userId, createdBy: owner.id }));
++
++    expect((await db.select({ n: count() }).from(contracts).where(eq(contracts.workspaceId, wsId)))[0].n).toBe(before);
++    expect((await db.select({ n: count() }).from(contracts).where(and(eq(contracts.workspaceId, wsId), like(contracts.number, "TMP-%"))))[0].n).toBe(0);
++    expect((await db.select({ n: count() }).from(contractSigners).where(eq(contractSigners.userId, client.userId)))[0].n).toBe(0);
++
++    await clearFaults();
++    const id = await issueContract({ workspaceId: wsId, title: "قرارداد سالم", bodyHtml: "<p>متن آزمایشی قرارداد سالم برای آزمون.</p>", customerId: client.userId, createdBy: owner.id });
++    const [c] = await db.select().from(contracts).where(eq(contracts.id, id));
++    expect(c.status).toBe("sent");
++    expect(c.number).toMatch(/^AMZ-\d{4}-\d{5}$/);
++    expect(c.bodyHtml).toContain("قرارداد سالم");
++  });
++
++  it("اعتبار کیف پولِ مصرف‌شده با شکست صدور خودکار برمی‌گردد (دقیقاً یک‌بار) و صدور سالم آن را مصرف می‌کند", async () => {
++    const freeWs = await createWorkspace(owner.id, "طرح رایگان");
++    const client = await ensureClient(freeWs, { name: "مشتری", email: `${uniq("f")}@example.com`, mobile: "09121110004" });
++    const issue = (title: string) => issueContract({ workspaceId: freeWs, title, bodyHtml: "<p>متن آزمایشی برای پر کردن سقف ماهانه‌ی طرح رایگان.</p>", customerId: client.userId, createdBy: owner.id });
++    for (let i = 0; i < 10; i++) await issue(`پرکننده ${i}`); // سقف ماهانه‌ی طرح رایگان = ۱۰
++    await grantCredits(freeWs, 2, { kind: "gift", ref: `t:${uniq("g")}`, description: "آزمون" });
++    expect((await getWallet(freeWs)).credits).toBe(2);
++
++    await injectFault("audit_logs", `NEW.action = 'contract.issued'`);
++    await expectFault(issue("بالاتر از سقف ناموفق"));
++    expect((await getWallet(freeWs)).credits).toBe(2); // نه ۱ (مصرف‌شده) و نه ۳ (بازگشت مضاعف)
++
++    await clearFaults();
++    await issue("بالاتر از سقف موفق");
++    expect((await getWallet(freeWs)).credits).toBe(1);
++  });
++
++  it("شکست اعلان پس از commit، قرارداد صادرشده را باطل نمی‌کند و در لاگ ثبت می‌شود", async () => {
++    const client = await ensureClient(wsId, { name: "مشتری", email: `${uniq("a")}@example.com`, mobile: "09121110005" });
++    await injectFault("short_links", "true");
++    const id = await issueContract({ workspaceId: wsId, title: "اعلان ناموفق", bodyHtml: "<p>متن آزمایشی قرارداد با اعلان ناموفق.</p>", customerId: client.userId, createdBy: owner.id });
++    const [c] = await db.select().from(contracts).where(eq(contracts.id, id));
++    expect(c.status).toBe("sent");
++    expect(c.number).toMatch(/^AMZ-/);
++    const logs = await db.select().from(auditLogs).where(and(eq(auditLogs.contractId, id), eq(auditLogs.action, "contract.announce_failed")));
++    expect(logs.length).toBe(1);
++  });
++});
++
++describe("DB-03: جریان‌های چندمرحله‌ای تراکنشی‌اند", () => {
++  it("createWorkspace: شکست در میانه، فضای کاری/عضویت یتیم نمی‌گذارد", async () => {
++    const counts = async () => ({
++      ws: (await db.select({ n: count() }).from(workspaces).where(eq(workspaces.ownerId, owner.id)))[0].n,
++      members: (await db.select({ n: count() }).from(workspaceMembers).where(eq(workspaceMembers.userId, owner.id)))[0].n,
++    });
++    const before = await counts();
++    await injectFault("templates", "true"); // آخرین گام createWorkspace
++    await expectFault(createWorkspace(owner.id, "ناقص"));
++    expect(await counts()).toEqual(before);
++  });
++
++  it("ثبت‌نام: شکست ساخت workspace = کاربر هم ساخته نمی‌شود؛ تلاش دوم با همان ایمیل موفق است", async () => {
++    const email = `${uniq("reg")}@example.com`;
++    const reg = () => run(() => registerAction({}, form({ name: "کاربر آزمون", email, mobile: "09123456789", password: "Passw0rdX9", workspaceName: "کسب‌وکار آزمون" })));
++
++    await injectFault("templates", "true");
++    await expectFault(reg());
++    expect(await userByEmail(email)).toBeUndefined(); // کاربرِ «بدون workspace» وجود ندارد
++
++    await clearFaults();
++    freshBrowser();
++    const ok = await reg();
++    expect(ok.redirect).toMatch(/^\/verify-email/);
++    const u = await userByEmail(email);
++    expect(u).toBeDefined();
++    const [m] = await db.select().from(workspaceMembers).where(eq(workspaceMembers.userId, u.id));
++    expect(m?.role).toBe("owner");
++  });
++
++  it("بازیابی رمز: شکست در میانه، توکن را نمی‌سوزاند و رمز را تغییر نمی‌دهد", async () => {
++    const [u] = await db.insert(users).values(newUserValues(`${uniq("rp")}@example.com`)).returning();
++    const token = await createResetToken(u.id, 2);
++    const attempt = () => run(() => resetPasswordAction({}, form({ token, password: "NewPassw0rd1", confirm: "NewPassw0rd1" })));
++
++    await injectFault("audit_logs", `NEW.user_id = ${u.id} AND NEW.action = 'auth.password_reset'`);
++    await expectFault(attempt());
++    const [row] = await db.select().from(passwordResets).where(eq(passwordResets.userId, u.id));
++    expect(row.usedAt).toBeNull(); // توکن هنوز قابل استفاده است
++    expect((await db.select().from(users).where(eq(users.id, u.id)))[0].passwordHash).toBe(u.passwordHash);
++
++    await clearFaults();
++    const ok = await attempt();
++    expect(ok.redirect).toBe("/login?reset=1");
++    expect((await db.select().from(users).where(eq(users.id, u.id)))[0].passwordHash).not.toBe(u.passwordHash);
++    expect((await db.select().from(passwordResets).where(eq(passwordResets.userId, u.id)))[0].usedAt).not.toBeNull();
++  });
++
++  it("پذیرش دعوت: شکست در میانه، حساب نمی‌سازد و دعوت‌نامه را نمی‌سوزاند", async () => {
++    const email = `${uniq("inv")}@example.com`;
++    const token = await createInvite(wsId, email, "member", owner.id);
++    const attempt = () => run(() => acceptInviteAction({}, form({ token, name: "عضو جدید", mobile: "09125550000", password: "Passw0rdX9" })));
++
++    await injectFault("audit_logs", `NEW.action = 'member.joined'`);
++    await expectFault(attempt());
++    expect(await userByEmail(email)).toBeUndefined();
++    expect((await db.select().from(workspaceInvites).where(eq(workspaceInvites.email, email)))[0].acceptedAt).toBeNull();
++
++    await clearFaults();
++    freshBrowser();
++    const ok = await attempt();
++    expect(ok.redirect).toBe("/admin");
++    const u = await userByEmail(email);
++    expect(u).toBeDefined();
++    const [m] = await db.select().from(workspaceMembers).where(and(eq(workspaceMembers.userId, u.id), eq(workspaceMembers.workspaceId, wsId)));
++    expect(m?.role).toBe("member");
++    expect((await db.select().from(workspaceInvites).where(eq(workspaceInvites.email, email)))[0].acceptedAt).not.toBeNull();
++  });
++});
++
++describe("DB-03: نصب (createFirstAdmin) روی دیتابیس تازه", () => {
++  const ISO = "emz_test_install_iso";
++  const base = new URL(process.env.TEST_DATABASE_URL!);
++  const urlOf = (name: string) => {
++    const u = new URL(base.toString());
++    u.pathname = `/${name}`;
++    return u.toString();
++  };
++  const savedUrl = process.env.DATABASE_URL;
++  let iso: Pool;
++
++  beforeAll(async () => {
++    const admin = new Pool({ connectionString: urlOf("postgres"), max: 1 });
++    try {
++      await admin.query(`DROP DATABASE IF EXISTS "${ISO}" WITH (FORCE)`);
++      await admin.query(`CREATE DATABASE "${ISO}"`);
++    } finally {
++      await admin.end();
++    }
++    iso = new Pool({ connectionString: urlOf(ISO), max: 2 });
++    for (const st of SCHEMA_CREATE) await iso.query(st);
++    process.env.DATABASE_URL = urlOf(ISO); // برنامه روی دیتابیس خالیِ جدا کار می‌کند
++  });
++  afterAll(async () => {
++    process.env.DATABASE_URL = savedUrl;
++    await db.execute(sql`select 1`); // اتصال برنامه به دیتابیس آزمون برمی‌گردد
++    await iso.end();
++    const admin = new Pool({ connectionString: urlOf("postgres"), max: 1 });
++    await admin.query(`DROP DATABASE IF EXISTS "${ISO}" WITH (FORCE)`).catch(() => undefined);
++    await admin.end();
++  });
++
++  const n = async (table: string) => Number((await iso.query(`select count(*)::int as n from ${table}`)).rows[0].n);
++  const input = { siteName: "سایت نصب", name: "مدیر", email: "admin@example.com", mobile: "09120000000", password: "Passw0rdX9" };
++
++  it("شکست ساخت workspace/تنظیمات = مدیر بدون workspace ساخته نمی‌شود و نصب قفل نمی‌ماند؛ تلاش دوم موفق است", async () => {
++    await iso.query(`create or replace function emz_fault() returns trigger language plpgsql as $$ begin raise exception 'simulated failure'; end $$`);
++    await iso.query(`create trigger emz_iso_fault before insert on workspace_settings for each row when (NEW.key = 'admin_email') execute function emz_fault()`);
++
++    await expectFault(createFirstAdmin(input));
++    expect(await n("users")).toBe(0);
++    expect(await n("workspaces")).toBe(0);
++    expect(await n("workspace_members")).toBe(0);
++    expect(await n("templates")).toBe(0);
++
++    await iso.query(`drop trigger emz_iso_fault on workspace_settings`);
++    const created = await createFirstAdmin(input);
++    expect(created).not.toBeNull();
++    expect(await n("users")).toBe(1);
++    expect(await n("workspaces")).toBe(1);
++    expect((await iso.query(`select role from workspace_members where user_id = $1`, [created!.userId])).rows[0].role).toBe("owner");
++    expect(await n("landing_versions")).toBe(1); // صفحه‌ی فرود پیش‌فرض هم در همان نصب ساخته شده
++    // نصب دوباره (کاربر موجود است) چیزی نمی‌سازد
++    expect(await createFirstAdmin({ ...input, email: "other@example.com" })).toBeNull();
++    expect(await n("users")).toBe(1);
++  });
++});

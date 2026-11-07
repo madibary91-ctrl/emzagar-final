@@ -1,0 +1,62 @@
+# امضاگیر — استقرار تولیدی روی VPS با HTTPS خودکار (Caddy + Let's Encrypt)
+# نصب خودکار:  sudo bash scripts/install-vps.sh sign.example.com you@example.com
+# دستی:        cp .env.production.example .env  → مقادیر را پر کنید →  docker compose -f docker-compose.prod.yml up -d --build
+name: emzagar
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: emzagar
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD را در .env بگذارید}
+      POSTGRES_DB: emzagar
+    volumes:
+      - dbdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U emzagar -d emzagar"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    # پورت دیتابیس عمداً به بیرون باز نیست.
+
+  app:
+    build: .
+    image: emzagar-app:latest
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://emzagar:${DB_PASSWORD}@db:5432/emzagar
+      NODE_ENV: production
+      TRUSTED_PROXY_HOPS: "1"   # پشت Caddy
+      BACKUP_DIR: /app/backups
+    volumes:
+      - storage:/app/storage
+      - backups:/app/backups   # CR-04: volume جدا از داده‌ی اصلی
+    expose:
+      - "3000"
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on:
+      - app
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      APP_DOMAIN: ${APP_DOMAIN:?APP_DOMAIN را در .env بگذارید}
+      ACME_EMAIL: ${ACME_EMAIL:-}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  dbdata:
+  storage:
+  backups:
+  caddy_data:
+  caddy_config:
