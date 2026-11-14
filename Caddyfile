@@ -1,0 +1,24 @@
+# HTTPS خودکار برای دامنه‌ی شما. DNS رکورد A دامنه باید به IP سرور اشاره کند.
+{
+	email {$ACME_EMAIL}
+}
+
+{$APP_DOMAIN} {
+	encode zstd gzip
+	# بدنه‌های بزرگ (آپلود مدارک/PDF)
+	request_body {
+		max_size 60MB
+	}
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		-Server
+	}
+	reverse_proxy app:3000 {
+		health_uri /api/health
+		health_interval 30s
+		# گفتگوی زنده (SSE): پاسخ‌ها بدون بافر و فوری به مرورگر برسند
+		flush_interval -1
+	}
+}

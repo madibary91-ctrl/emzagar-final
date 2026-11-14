@@ -1,0 +1,81 @@
+/* امضاگیر — میز کار قراردادها */
+.emz-ws h1 .emz-ws-hint{font-size:12px;font-weight:400;color:#646970;margin-inline-start:12px}
+.emz-ws kbd{background:#f0f0f1;border:1px solid #c3c4c7;border-bottom-width:2px;border-radius:4px;padding:0 5px;font-size:11px}
+.emz-ws-flash{margin:12px 0;padding:10px 14px;border-radius:8px;font-weight:600}
+.emz-ws-flash.is-ok{background:#dcfce7;color:#166534}.emz-ws-flash.is-err{background:#fee2e2;color:#991b1b}
+.emz-ws .nav-tab-wrapper{margin-bottom:14px}
+
+.emz-board{display:grid;grid-template-columns:repeat(5,minmax(210px,1fr));gap:12px;overflow-x:auto;padding-bottom:8px}
+.emz-col{background:#f6f7f7;border:1px solid #e5e7eb;border-radius:12px;padding:10px;min-height:200px}
+.emz-col>header{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px}
+.emz-col>header b{font-size:13px}.emz-col>header small{flex:1 1 100%;color:#646970}
+.emz-col-n{background:#fff;border-radius:99px;padding:0 8px;font-size:12px;line-height:20px;border:1px solid #e5e7eb}
+.emz-col-sent{border-top:3px solid #d97706}.emz-col-viewed{border-top:3px solid #2563eb}
+.emz-col-signed{border-top:3px solid #16a34a}.emz-col-rejected{border-top:3px solid #9333ea}.emz-col-expired{border-top:3px solid #dc2626}
+.emz-col-list{display:flex;flex-direction:column;gap:8px}
+.emz-card{display:block;width:100%;text-align:start;background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:10px;cursor:pointer;transition:box-shadow .15s,transform .15s}
+.emz-card:hover,.emz-card:focus{box-shadow:0 4px 14px rgba(15,23,42,.12);transform:translateY(-1px);outline:2px solid #0f766e;outline-offset:1px}
+.emz-card b{display:block;font-size:13px;line-height:1.5;margin-bottom:2px}.emz-card small{color:#646970}
+.emz-card-meta{display:flex;flex-wrap:wrap;gap:4px 10px;margin-top:6px;font-size:12px;color:#3c434a}
+.emz-warn{display:inline-block;margin-top:6px;padding:1px 8px;border-radius:99px;background:#fee2e2;color:#991b1b;font-size:11px;font-weight:700}
+.emz-col-empty{color:#8c8f94;text-align:center;font-size:12px;margin:18px 0}
+.emz-col-more{text-align:center;font-size:12px;padding:6px}
+
+.emz-st{display:inline-block;padding:1px 9px;border-radius:99px;font-size:11px;font-weight:700;background:#e5e7eb;color:#374151}
+.emz-st-sent{background:#fef3c7;color:#92400e}.emz-st-viewed{background:#dbeafe;color:#1e40af}
+.emz-st-signed{background:#dcfce7;color:#166534}.emz-st-rejected{background:#f3e8ff;color:#6b21a8}
+.emz-st-expired,.emz-st-cancelled{background:#fee2e2;color:#991b1b}
+.emz-pager{display:flex;gap:10px;align-items:center;margin-top:12px}
+
+.emz-ac{position:relative;max-width:420px}
+.emz-ac-list{position:absolute;inset-inline:0;top:100%;z-index:20;margin:2px 0 0;padding:4px;list-style:none;background:#fff;border:1px solid #c3c4c7;border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.12)}
+.emz-ac-list button{display:block;width:100%;text-align:start;background:none;border:0;padding:7px 10px;border-radius:6px;cursor:pointer}
+.emz-ac-list button:hover,.emz-ac-list button:focus{background:#f0f6fc}
+.emz-ac-list .is-empty{padding:8px 10px;color:#646970}
+
+body.emz-lock{overflow:hidden}
+/* کشو: پیش‌فرض نامرئی؛ فقط با .is-open دیده می‌شود. (قبلاً فقط به [hidden] متکی بود و هر سبکی که display بدهد آن را روی همه‌ی تب‌ها خالی و بلور نشان می‌داد.) */
+.emz-drawer{display:none;position:fixed;inset:0;z-index:100001}
+.emz-drawer.is-open:not([hidden]){display:block}
+.emz-drawer[hidden],.emz-drawer:not(.is-open){display:none!important}
+.emz-drawer-scrim{position:absolute;inset:0;background:rgba(15,23,42,.45)}
+.emz-drawer-panel{position:absolute;inset-block:0;inset-inline-end:0;width:min(480px,100%);background:#fff;padding:22px 22px 40px;overflow:auto;box-shadow:-10px 0 40px rgba(15,23,42,.25);animation:emz-slide .22s ease}
+.emz-drawer-x{position:absolute;inset-block-start:10px;inset-inline-start:12px;border:0;background:#f0f0f1;border-radius:99px;width:30px;height:30px;font-size:20px;line-height:28px;cursor:pointer}
+.emz-drawer-panel h2{margin:26px 0 6px;font-size:18px}.emz-drawer-panel h3{margin:20px 0 8px;font-size:13px;color:#50575e}
+.emz-drawer-sub{margin:0 0 12px}
+.emz-acts{display:flex;flex-wrap:wrap;gap:8px;margin:10px 0 14px}
+.emz-dl{display:grid;grid-template-columns:auto 1fr;gap:4px 14px;margin:0}.emz-dl dt{color:#646970}.emz-dl dd{margin:0}
+.emz-dl dd:first-child{grid-column:1 / -1;font-weight:600}
+.emz-signers{margin:0;padding:0;list-style:none}.emz-signers li{padding:6px 0;border-bottom:1px solid #f0f0f1}.emz-signers .is-signed b{color:#166534}
+.emz-timeline{margin:0;padding:0;list-style:none;border-inline-start:2px solid #e5e7eb}
+.emz-timeline li{position:relative;padding:4px 14px 10px 0;padding-inline:14px 0}
+.emz-timeline li:before{content:"";position:absolute;inset-inline-start:-6px;top:10px;width:10px;height:10px;border-radius:99px;background:#0f766e}
+.emz-tl-d{color:#646970;font-size:12px}
+@keyframes emz-slide{from{transform:translateX(-30px);opacity:.4}to{transform:none;opacity:1}}
+@media (prefers-reduced-motion:reduce){.emz-drawer-panel{animation:none}}
+
+.emz-feed{margin:0;padding:0;list-style:none}
+.emz-feed-item{display:flex;gap:12px;align-items:center;padding:10px 6px;border-bottom:1px solid #f0f0f1}
+.emz-feed-item.is-new{background:#f0fdf4}
+.emz-feed-item>div{flex:1}.emz-feed-ico{font-size:20px}.emz-feed-time{color:#8c8f94;font-size:12px;white-space:nowrap}
+
+/* پالت فرمان */
+#emz-pal{position:fixed;inset:0;z-index:100002;display:flex;align-items:flex-start;justify-content:center;padding-top:12vh;background:rgba(15,23,42,.5)}
+#emz-pal[hidden]{display:none!important}
+.emz-pal-box{width:min(640px,94vw);background:#fff;border-radius:14px;box-shadow:0 20px 60px rgba(0,0,0,.35);overflow:hidden}
+.emz-pal-box input{width:100%;border:0;border-bottom:1px solid #e5e7eb;padding:16px 18px;font-size:16px;box-shadow:none;outline:none;border-radius:0}
+.emz-pal-box input:focus{box-shadow:none;border-color:#0f766e}
+.emz-pal-list{max-height:52vh;overflow:auto;margin:0;padding:6px;list-style:none}
+.emz-pal-list .g{padding:8px 12px 2px;font-size:11px;color:#8c8f94;font-weight:700}
+.emz-pal-list a{display:flex;gap:10px;align-items:center;padding:8px 12px;border-radius:8px;color:#1d2327;text-decoration:none}
+.emz-pal-list a small{color:#646970;margin-inline-start:auto;font-size:11px}
+.emz-pal-list a.is-on,.emz-pal-list a:hover{background:#0f766e;color:#fff}
+.emz-pal-list a.is-on small,.emz-pal-list a:hover small{color:#d1fae5}
+.emz-pal-foot{display:flex;gap:14px;padding:8px 14px;background:#f6f7f7;color:#646970;font-size:11px}
+.emz-pal-empty{padding:18px;text-align:center;color:#646970}
+
+/* اتوماسیون‌ها */
+.emz-recipes{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px}
+.emz-recipe{border:1px solid #e5e7eb;border-radius:12px;padding:14px;background:#fff;display:flex;flex-direction:column;gap:6px}
+.emz-recipe p{margin:0;color:#50575e;flex:1}
+.emz-auto .emz-st{text-decoration:none}

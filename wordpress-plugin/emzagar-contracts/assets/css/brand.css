@@ -1,0 +1,153 @@
+/*
+ * امضاگیر — هویت بصری برند (هماهنگ با پنل Next.js)
+ * رنگ‌ها و فونت از همان توکن‌های پنل: --ink #102c31 · --mint #41e4ad · Vazirmatn
+ * این فایل آخر از همه بارگذاری می‌شود و فقط روی صفحه‌های امضاگیر اثر دارد (بدون دست‌زدن به بقیه‌ی پیشخوان).
+ */
+@font-face{font-family:"Vazirmatn";font-style:normal;font-weight:400;font-display:swap;src:url(../fonts/vazirmatn-arabic-400-normal.woff2) format("woff2")}
+@font-face{font-family:"Vazirmatn";font-style:normal;font-weight:500;font-display:swap;src:url(../fonts/vazirmatn-arabic-500-normal.woff2) format("woff2")}
+@font-face{font-family:"Vazirmatn";font-style:normal;font-weight:700;font-display:swap;src:url(../fonts/vazirmatn-arabic-700-normal.woff2) format("woff2")}
+@font-face{font-family:"Vazirmatn";font-style:normal;font-weight:900;font-display:swap;src:url(../fonts/vazirmatn-arabic-900-normal.woff2) format("woff2")}
+@font-face{font-family:"Vazirmatn";font-style:normal;font-weight:400;font-display:swap;unicode-range:U+0020-007E;src:url(../fonts/vazirmatn-latin-400-normal.woff2) format("woff2")}
+@font-face{font-family:"Vazirmatn";font-style:normal;font-weight:700;font-display:swap;unicode-range:U+0020-007E;src:url(../fonts/vazirmatn-latin-700-normal.woff2) format("woff2")}
+
+:root{
+  --emz-ink:#102c31;--emz-ink-2:#1b3b3e;--emz-mint:#41e4ad;--emz-mint-soft:#e7fbf3;--emz-mint-deep:#0f9f74;
+  --emz-paper:#f5f7f4;--emz-line:rgba(16,44,49,.12);--emz-mut:rgba(16,44,49,.68);
+  --emz-font:"Vazirmatn",Tahoma,"Segoe UI",sans-serif;
+}
+
+/* ───── محدوده‌ی امضاگیر: فونت، رنگ تم وردپرس، فاصله‌ها ───── */
+.emz-hub,.emz-ctl,.emz-ws,.emz-auto,.emz-welcome,.emz-wrap,.emz-drawer,#emz-pal,#emz-toasts,.emz-brandbar{
+  font-family:var(--emz-font);color:var(--emz-ink);
+}
+.emz-hub,.emz-ctl,.emz-ws,.emz-auto,.emz-welcome{
+  --wp-admin-theme-color:#102c31;--wp-admin-theme-color-darker-10:#0b2125;--wp-admin-theme-color-darker-20:#071619;
+  --emz:#102c31;--emz-soft:#e7fbf3;--ink:#102c31;--mut:rgba(16,44,49,.68);--line:rgba(16,44,49,.12);
+  --ok:#0f9f74;--warn:#c27803;--bad:#dc2626;
+  line-height:1.9;
+}
+.emz-hub input,.emz-hub select,.emz-hub textarea,.emz-hub button,
+.emz-ctl input,.emz-ctl select,.emz-ctl textarea,.emz-ctl button,
+.emz-drawer button,.emz-drawer input,#emz-pal input{font-family:inherit}
+.emz-hub h1,.emz-ctl h1,.emz-ws h1,.emz-welcome h1{font-weight:900;letter-spacing:0;font-size:24px;color:var(--emz-ink);margin:6px 0 14px}
+.emz-hub h2,.emz-ctl h2,.emz-hub h3,.emz-ctl h3{font-weight:800;color:var(--emz-ink)}
+.emz-hub a,.emz-ctl a{color:var(--emz-ink-2)}
+.emz-hub a:hover,.emz-ctl a:hover{color:var(--emz-mint-deep)}
+.emz-hub :focus-visible,.emz-ctl :focus-visible,.emz-drawer :focus-visible,#emz-pal :focus-visible{
+  outline:2px solid var(--emz-ink);outline-offset:2px;box-shadow:0 0 0 5px rgba(65,228,173,.45)
+}
+
+/* ───── نوار برند بالای صفحه‌های امضاگیر ───── */
+.emz-brandbar{
+  display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin:14px 20px 0 0;margin-inline:20px 20px 0;
+  padding:14px 18px;border-radius:18px;color:#fff;
+  background:radial-gradient(120% 160% at 100% 0%,rgba(65,228,173,.28),transparent 55%),linear-gradient(135deg,#102c31,#1b3b3e);
+  box-shadow:0 10px 30px rgba(16,44,49,.18)
+}
+.emz-brandbar-mark{display:grid;place-items:center;width:42px;height:42px;border-radius:13px;background:var(--emz-mint);color:var(--emz-ink);flex:none}
+.emz-brandbar-mark svg{width:24px;height:24px;display:block}
+.emz-brandbar b{display:block;font-size:17px;font-weight:900;line-height:1.4;color:#fff}
+.emz-brandbar small{display:block;font-size:12px;color:rgba(255,255,255,.72);line-height:1.6}
+.emz-brandbar-ver{margin-inline-start:auto;font-size:11px;font-weight:700;padding:3px 10px;border-radius:99px;background:rgba(65,228,173,.16);color:var(--emz-mint);direction:ltr}
+@media (max-width:782px){.emz-brandbar{margin-inline:10px 10px}}
+
+/* ───── کارت‌ها و سطح‌ها ───── */
+.emz-ctl .emz-card,.emz-hub .emz-h-card,.emz-hub .emz-card,.emz-recipe,.emz-banner{
+  border:1px solid var(--emz-line);border-radius:18px;box-shadow:0 8px 24px rgba(16,44,49,.05);background:#fff
+}
+.emz-ctl .emz-card h2{font-size:17px}
+.emz-banner.is-ok{background:linear-gradient(135deg,var(--emz-mint-soft),#fff);border-color:rgba(65,228,173,.55)}
+.emz-w-grid div{background:var(--emz-paper);border-radius:14px}
+.emz-w-grid b,.emz-h-card b{color:var(--emz-ink)}
+.emz-card-value{color:var(--emz-ink)}
+.emz-table-wrap{border-radius:18px;border-color:var(--emz-line)}
+.emz-table th{background:var(--emz-paper);color:var(--emz-mut);font-weight:700}
+
+/* ───── دکمه‌ها ───── */
+.emz-hub .button,.emz-ctl .button,.emz-drawer .button,.emz-btn{border-radius:12px;font-weight:700;min-height:34px;line-height:1.9;padding-inline:14px;border-color:var(--emz-line);color:var(--emz-ink);background:#fff}
+.emz-hub .button:hover,.emz-ctl .button:hover,.emz-drawer .button:hover{background:var(--emz-paper);border-color:var(--emz-ink);color:var(--emz-ink)}
+.emz-hub .button-primary,.emz-ctl .button-primary,.emz-drawer .button-primary,.emz-ctl .emz-btn-primary{
+  background:var(--emz-ink);border-color:var(--emz-ink);color:#fff;box-shadow:0 8px 20px rgba(16,44,49,.14)
+}
+.emz-hub .button-primary:hover,.emz-ctl .button-primary:hover,.emz-drawer .button-primary:hover{background:var(--emz-ink-2);border-color:var(--emz-ink-2);color:var(--emz-mint)}
+.emz-btn{border-color:var(--emz-ink);color:var(--emz-ink)}
+.emz-btn:hover{background:var(--emz-mint);border-color:var(--emz-mint);color:var(--emz-ink)}
+.emz-ctl input[type=text],.emz-ctl input[type=url],.emz-ctl input[type=email],.emz-ctl input[type=number],.emz-ctl input[type=password],.emz-ctl select,.emz-ctl textarea,
+.emz-hub input[type=text],.emz-hub input[type=search],.emz-hub select,.emz-hub textarea{border-radius:12px;border-color:var(--emz-line);min-height:36px}
+.emz-ctl input:focus,.emz-ctl select:focus,.emz-ctl textarea:focus,.emz-hub input:focus,.emz-hub select:focus{border-color:var(--emz-ink);box-shadow:0 0 0 3px rgba(65,228,173,.45);outline:0}
+.emz-ctl input[type=checkbox],.emz-ctl input[type=radio],.emz-hub input[type=checkbox],.emz-hub input[type=radio]{accent-color:var(--emz-ink)}
+
+/* ───── تب‌ها ───── */
+.emz-ctl .nav-tab-wrapper,.emz-ws .nav-tab-wrapper,.emz-hub .nav-tab-wrapper{border-bottom:1px solid var(--emz-line);display:flex;flex-wrap:wrap;gap:6px;padding-top:0}
+.emz-ctl .nav-tab,.emz-ws .nav-tab,.emz-hub .nav-tab{
+  float:none;margin:0;border:1px solid transparent;border-radius:12px 12px 0 0;background:transparent;color:var(--emz-mut);font-weight:700;padding:8px 14px
+}
+.emz-ctl .nav-tab:hover,.emz-ws .nav-tab:hover,.emz-hub .nav-tab:hover{background:var(--emz-paper);color:var(--emz-ink)}
+.emz-ctl .nav-tab-active,.emz-ws .nav-tab-active,.emz-hub .nav-tab-active{background:var(--emz-ink);color:#fff;border-color:var(--emz-ink)}
+.emz-ctl .nav-tab-active:hover,.emz-ws .nav-tab-active:hover,.emz-hub .nav-tab-active:hover{background:var(--emz-ink-2);color:var(--emz-mint)}
+.emz-ctl .emz-tab-ext{background:var(--emz-mint-soft)}
+
+/* ───── میز کار قراردادها (کانبان) ───── */
+.emz-board{gap:14px}
+.emz-col{background:var(--emz-paper);border:1px solid var(--emz-line);border-radius:18px;padding:12px}
+.emz-col>header b{font-weight:800;color:var(--emz-ink)}
+.emz-col-n{background:var(--emz-ink);color:var(--emz-mint);border:0;font-weight:700;min-width:24px;text-align:center}
+.emz-col-sent{border-top:4px solid #e0a31b}.emz-col-viewed{border-top:4px solid #3b82a6}
+.emz-col-signed{border-top:4px solid var(--emz-mint)}.emz-col-rejected{border-top:4px solid #8b5cf6}.emz-col-expired{border-top:4px solid #e0584f}
+.emz-board .emz-card{border:1px solid var(--emz-line);border-radius:14px;padding:12px;box-shadow:0 2px 8px rgba(16,44,49,.05);background:#fff}
+.emz-board .emz-card:hover,.emz-board .emz-card:focus{box-shadow:0 10px 24px rgba(16,44,49,.12);outline:2px solid var(--emz-mint);outline-offset:1px}
+.emz-card b{font-weight:800}
+.emz-card-meta{color:var(--emz-mut)}
+.emz-warn{background:#fdecec;color:#b42318}
+.emz-st,.emz-badge,.emz-chip-k,.emz-s-signed,.emz-s-sent,.emz-s-rejected,.emz-s-cancelled,.emz-s-expired{font-family:var(--emz-font);font-weight:700}
+.emz-st-signed,.emz-badge-signed,.emz-s-signed{background:var(--emz-mint-soft);color:#0a6b4d}
+.emz-st-sent,.emz-badge-pending,.emz-s-sent{background:#fff4d6;color:#8a5a00}
+.emz-st-viewed{background:#e3f1f7;color:#1f5f7a}
+.emz-st-rejected{background:#efe9ff;color:#5b34b5}
+.emz-st-expired,.emz-st-cancelled,.emz-badge-rejected,.emz-badge-expired,.emz-badge-cancelled,.emz-s-rejected,.emz-s-cancelled{background:#fdecec;color:#b42318}
+.emz-chip.is-active{background:var(--emz-ink);border-color:var(--emz-ink);color:#fff}
+.emz-chip:hover{border-color:var(--emz-ink)}
+
+/* ───── کشوی جزئیات ───── */
+.emz-drawer:not(.is-open){display:none!important}
+.emz-drawer-scrim{background:rgba(16,44,49,.5);backdrop-filter:blur(2px)}
+.emz-drawer-panel{border-radius:22px 0 0 22px;box-shadow:-18px 0 50px rgba(16,44,49,.28)}
+.emz-drawer-panel h2{font-weight:900;color:var(--emz-ink)}
+.emz-drawer-panel h3{color:var(--emz-mut);font-weight:800}
+.emz-drawer-x{background:var(--emz-paper);color:var(--emz-ink)}
+.emz-drawer-x:hover{background:var(--emz-mint)}
+.emz-timeline{border-inline-start-color:var(--emz-line)}
+.emz-timeline li:before{background:var(--emz-mint);box-shadow:0 0 0 3px var(--emz-ink)}
+.emz-signers .is-signed b{color:#0a6b4d}
+.emz-feed-item.is-new{background:var(--emz-mint-soft)}
+
+/* ───── پالت فرمان Ctrl+K ───── */
+#emz-pal{background:rgba(16,44,49,.55);backdrop-filter:blur(3px)}
+.emz-pal-box{border-radius:20px;box-shadow:0 24px 70px rgba(16,44,49,.45)}
+.emz-pal-box input:focus{border-color:var(--emz-mint)}
+.emz-pal-list a{color:var(--emz-ink)}
+.emz-pal-list a.is-on,.emz-pal-list a:hover{background:var(--emz-ink);color:#fff}
+.emz-pal-list a.is-on small,.emz-pal-list a:hover small{color:var(--emz-mint)}
+.emz-pal-foot{background:var(--emz-paper)}
+
+/* ───── اعلان زنده ───── */
+.emz-toast{background:var(--emz-ink);border:1px solid rgba(65,228,173,.35);border-radius:16px;font-family:var(--emz-font)}
+.emz-toast:hover,.emz-toast:focus{background:var(--emz-ink-2);color:#fff}
+.emz-toast-ico{color:var(--emz-mint)}
+
+/* ───── ویجت‌های عمومی (شورت‌کد/المنتور) ───── */
+.emz-wrap{--emz-border:rgba(16,44,49,.12);--emz-muted:rgba(16,44,49,.68);font-family:var(--emz-font)}
+.emz-wrap .emz-chip.is-active{background:var(--emz-accent);border-color:var(--emz-accent)}
+.emz-wrap .emz-btn:hover{background:var(--emz-mint);border-color:var(--emz-mint);color:var(--emz-ink)}
+
+/* ───── جعبه‌ی قرارداد در سفارش ووکامرس ───── */
+#emzagar_order .inside{font-family:var(--emz-font)}
+#emzagar_order .emz-ct{border-radius:14px;border-color:var(--emz-line)}
+#emzagar_order .button-primary{background:var(--emz-ink);border-color:var(--emz-ink);border-radius:12px;font-weight:700}
+#emzagar_order .button-primary:hover{background:var(--emz-ink-2);color:var(--emz-mint)}
+#emzagar_order .button{border-radius:12px}
+#emzagar_order select{border-radius:10px;max-width:100%}
+
+/* ───── منوی کناری ───── */
+#adminmenu #toplevel_page_emzagar .wp-menu-image img{width:20px;height:20px;padding:7px 0}
+@media (prefers-reduced-motion:reduce){.emz-hub *,.emz-ctl *,.emz-drawer *{transition:none!important;animation:none!important}}

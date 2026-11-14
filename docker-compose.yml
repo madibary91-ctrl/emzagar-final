@@ -1,0 +1,44 @@
+# نصب با یک دستور:   docker compose up -d
+# سپس http://IP-سرور:3000 را باز کنید؛ نصب‌کننده‌ی وب بقیه‌ی کار را انجام می‌دهد.
+# (دیتابیس از قبل متصل است و مرحله‌ی دیتابیس در نصب‌کننده خودکار رد می‌شود.)
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: emzagar
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-emzagar-change-me}
+      POSTGRES_DB: emzagar
+    volumes:
+      - dbdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U emzagar -d emzagar"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    # پورت دیتابیس عمداً به بیرون باز نشده است؛ فقط خود برنامه به آن دسترسی دارد.
+
+  app:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "${APP_PORT:-3000}:3000"
+    environment:
+      DATABASE_URL: postgresql://emzagar:${DB_PASSWORD:-emzagar-change-me}@db:5432/emzagar
+      # H-04: بدون پراکسی جلوی برنامه، هدرهای X-Forwarded-For جعلی‌اند و نادیده گرفته می‌شوند؛ IP هر کلاینت از «آدرس واقعی سوکت» خوانده می‌شود
+      # (پشت Caddy/Nginx مقدار ۱ بگذارید؛ docker-compose.prod.yml همین‌طور است).
+      TRUSTED_PROXY_HOPS: "0"
+      BACKUP_DIR: /app/backups
+      # آینه‌ی بیرونی (دیسک/NFS دیگر که روی /mirror mount کرده‌اید): BACKUP_MIRROR_DIRS: /mirror
+      # آدرس عمومی سایت (اختیاری، پس از اتصال دامنه): APP_URL: https://sign.example.com
+    volumes:
+      - storage:/app/storage
+      - backups:/app/backups   # CR-04: volume جدا از داده‌ی اصلی
+
+volumes:
+  dbdata:
+  storage:
+  backups:

@@ -1,0 +1,1573 @@
+{
+ "GET /api/account/export — بدون ورود [anon]": {
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+   "error": {
+    "type": "string",
+    "minLength": 1
+   }
+  },
+  "required": [
+   "error"
+  ],
+  "additionalProperties": false
+ },
+ "GET /api/account/export — خروجی داده‌ها [user]": {
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+   "exportedAt": {
+    "type": "string"
+   },
+   "format": {
+    "type": "string",
+    "minLength": 1
+   }
+  },
+  "required": [
+   "exportedAt",
+   "format"
+  ],
+  "additionalProperties": false
+ },
+ "GET /api/admin/search — بدون ورود [anon]": {
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+   "ok": {
+    "type": "boolean",
+    "const": false
+   },
+   "results": {
+    "minItems": 0,
+    "maxItems": 0,
+    "type": "array",
+    "items": {}
+   }
+  },
+  "required": [
+   "ok",
+   "results"
+  ],
+  "additionalProperties": false
+ },
+ "GET /api/admin/search — جستجو [admin]": {
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+   "ok": {
+    "type": "boolean",
+    "const": true
+   },
+   "results": {
+    "type": "array",
+    "items": {
+     "type": "object",
+     "properties": {},
+     "additionalProperties": {}
+    }
+   }
+  },
+  "required": [
+   "ok",
+   "results"
+  ],
+  "additionalProperties": false
+ },
+ "GET /api/ai/contract — بدون ورود [anon]": {
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+   "ok": {
+    "type": "boolean",
+    "const": false
+   },
+   "error": {
+    "type": "string",
+    "minLength": 1
+   },
+   "detail": {
+    "type": "string"
+   }
+  },
+  "required": [
+   "ok",
+   "error"
+  ],
+  "additionalProperties": false
+ },
+ "GET /api/ai/contract — وضعیت سهمیه [admin]": {
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+   "ok": {
+    "type": "boolean",
+    "const": true
+   },
+   "configured": {
+    "type": "boolean"
+   },
+   "used": {
+    "type": "integer",
+    "minimum": -9007199254740991,
+    "maximum": 9007199254740991
+   },
+   "limit": {
+    "type": "integer",
+    "minimum": -9007199254740991,
+    "maximum": 9007199254740991
+   }
+  },
+  "required": [
+   "ok",
+   "configured",
+   "used",
+   "limit"
+  ],
+  "additionalProperties": false
+ },
+ "GET /api/contracts/[id]/amendments/[seq]/pdf — الحاقیه‌ی ناموجود [admin]": {
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+   "error": {
+    "type": "string",
+    "minLength": 1
+   }
+  },
+  "required": [
+   "error"
+  ],
+  "additionalProperties": false
+ },
+ "GET /api/contracts/[id]/amendments/[seq]/pdf — بدون ورود [anon]": {
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+   "error": {
+    "type": "string",
+    "minLength": 1
+   }
+  },
+  "required": [
+   "error"
+  ],
+  "additionalProperties": false
+ },
+ "GET /api/contracts/[id]/pdf — بدون ورود [anon]": {
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+   "error": {
+    "type": "string",
+    "minLength": 1
+   }
+  },
+  "required": [
+   "error"
+  ],
+  "additionalProperties": false
+ },
+ "GET /api/contracts/[id]/pdf — هنوز امضا نشده [user]": {
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+   "error": {
+    "type": "string",
+    "const": "not_signed_yet"
+   }
+  },
+  "required": [
+   "error"
+  ],
+  "additionalProperties": false
+ },
+ "GET /api/cron/run — بدون راز [anon]": {
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+   "ok": {
+    "type": "boolean",
+    "const": false
+   },
+   "error": {
+    "type": "string",
+    "const": "unauthorized"
+   },
+   "detail": {
+    "type": "string"
+   }
+  },
+  "required": [
+   "ok",
+   "error"
+  ],
+  "additionalProperties": false
+ },
+ "GET /api/health — سالم [anon]": {
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+   "ok": {
+    "type": "boolean",
+    "const": true
+   },
+   "simulator": {
+    "type": [
+     "string",
+     "null"
+    ]
+   },
+   "installed": {
+    "type": "boolean"
+   }
+  },
+  "required": [
+   "ok"
+  ],
+  "additionalProperties": false
+ },
+ "GET /api/notifications — بدون ورود [anon]": {
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+   "error": {
+    "type": "string",
+    "const": "unauthorized"
+   }
+  },
+  "required": [
+   "error"
+  ],
+  "additionalProperties": false
+ },
+ "GET /api/notifications — فهرست اعلان‌ها [admin]": {
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+   "unread": {
+    "type": "integer",
+    "minimum": 0,
+    "maximum": 9007199254740991
+   },
+   "items": {
+    "type": "array",
+    "items": {
+     "type": "object",
+     "properties": {
+      "id": {
+       "type": "integer",
+       "minimum": -9007199254740991,
+       "maximum": 9007199254740991
+      },
+      "kind": {
+       "type": "string"
+      },
+      "title": {
+       "type": "string"
+      }
+     },
+     "required": [
+      "id",
+      "kind",
+      "title"
+     ],
+     "additionalProperties": false
+    }
+   }
+  },
+  "required": [
+   "unread",
+   "items"
+  ],
+  "additionalProperties": false
+ },
+ "GET /api/notifications — کلید API نشست نیست [key]": {
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+   "error": {
+    "type": "string",
+    "minLength": 1
+   }
+  },
+  "required": [
+   "error"
+  ],
+  "additionalProperties": false
+ },
+ "GET /api/sign/[token]/pdf — توکن بدون امضای نهایی [anon]": {
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+   "error": {
+    "type": "string",
+    "const": "not_found"
+   }
+  },
+  "required": [
+   "error"
+  ],
+  "additionalProperties": false
+ },
+ "GET /api/v1/connect/status — وضعیت [key]": {
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+   "ok": {
+    "type": "boolean",
+    "const": true
+   },
+   "workspace": {
+    "type": "string"
+   },
+   "managed": {
+    "type": "boolean"
+   },
+   "verified": {
+    "type": "boolean"
+   },
+   "sso": {
+    "type": "boolean"
+   },
+   "panelUrl": {
+    "type": "string",
+    "format": "uri"
+   }
+  },
+  "required": [
+   "ok",
+   "workspace",
+   "managed",
+   "verified",
+   "sso",
+   "panelUrl"
+  ],
+  "additionalProperties": false
+ },
+ "GET /api/v1/contracts — بدون کلید [anon]": {
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+   "ok": {
+    "type": "boolean",
+    "const": false
+   },
+   "error": {
+    "type": "string",
+    "minLength": 1
+   },
+   "detail": {
+    "type": "string"
+   }
+  },
+  "required": [
+   "ok",
+   "error"
+  ],
+  "additionalProperties": false
+ },
+ "GET /api/v1/contracts — سقف limit=۵۰ [key]": {
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+   "ok": {
+    "type": "boolean",
+    "const": true
+   },
+   "page": {
+    "type": "number",
+    "const": 1
+   },
+   "limit": {
+    "type": "number",
+    "const": 50
+   },
+   "total": {
+    "type": "integer",
+    "minimum": 0,
+    "maximum": 9007199254740991
+   },
+   "items": {
+    "type": "array",
+    "items": {
+     "type": "object",
+     "properties": {
+      "id": {
+       "type": "integer",
+       "minimum": -9007199254740991,
+       "maximum": 9007199254740991
+      },
+      "number": {
+       "type": "string",
+       "pattern": "^[A-Z]+-\\d{4}-\\d+$"
+      },
+      "title": {
+       "type": "string"
+      },
+      "status": {
+       "type": "string"
+      },
+      "statusLabel": {
+       "type": "string"
+      },
+      "issuedAt": {
+       "type": "string"
+      },
+      "signedAt": {
+       "type": [
+        "string",
+        "null"
+       ]
+      },
+      "expiresAt": {
+       "type": [
+        "string",
+        "null"
+       ]
+      },
+      "customer": {
+       "type": "object",
+       "properties": {
+        "name": {
+         "type": "string"
+        },
+        "email": {
+         "type": "string",
+         "format": "email",
+         "pattern": "^(?:[A-Za-z0-9_'+\\-]+\\.)*[A-Za-z0-9_'+\\-]*[A-Za-z0-9_+-]@(?:[A-Za-z0-9][A-Za-z0-9\\-]*\\.)+[A-Za-z]{2,}$"
+        }
+       },
+       "required": [
+        "name",
+        "email"
+       ],
+       "additionalProperties": false
+      },
+      "shortUrl": {
+       "anyOf": [
+        {
+         "type": "string",
+         "format": "uri"
+        },
+        {
+         "type": "null"
+        }
+       ]
+      }
+     },
+     "required": [
+      "id",
+      "number",
+      "title",
+      "status",
+      "statusLabel",
+      "issuedAt",
+      "signedAt",
+      "expiresAt",
+      "customer",
+      "shortUrl"
+     ],
+     "additionalProperties": false
+    }
+   }
+  },
+  "required": [
+   "ok",
+   "page",
+   "limit",
+   "total",
+   "items"
+  ],
+  "additionalProperties": false
+ },
+ "GET /api/v1/contracts — فهرست [key]": {
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+   "ok": {
+    "type": "boolean",
+    "const": true
+   },
+   "page": {
+    "type": "integer",
+    "minimum": 1,
+    "maximum": 9007199254740991
+   },
+   "limit": {
+    "type": "integer",
+    "minimum": 1,
+    "maximum": 50
+   },
+   "total": {
+    "type": "integer",
+    "minimum": 0,
+    "maximum": 9007199254740991
+   },
+   "items": {
+    "type": "array",
+    "items": {
+     "type": "object",
+     "properties": {
+      "id": {
+       "type": "integer",
+       "minimum": -9007199254740991,
+       "maximum": 9007199254740991
+      },
+      "number": {
+       "type": "string",
+       "pattern": "^[A-Z]+-\\d{4}-\\d+$"
+      },
+      "title": {
+       "type": "string"
+      },
+      "status": {
+       "type": "string"
+      },
+      "statusLabel": {
+       "type": "string"
+      },
+      "issuedAt": {
+       "type": "string"
+      },
+      "signedAt": {
+       "type": [
+        "string",
+        "null"
+       ]
+      },
+      "expiresAt": {
+       "type": [
+        "string",
+        "null"
+       ]
+      },
+      "customer": {
+       "type": "object",
+       "properties": {
+        "name": {
+         "type": "string"
+        },
+        "email": {
+         "type": "string",
+         "format": "email",
+         "pattern": "^(?:[A-Za-z0-9_'+\\-]+\\.)*[A-Za-z0-9_'+\\-]*[A-Za-z0-9_+-]@(?:[A-Za-z0-9][A-Za-z0-9\\-]*\\.)+[A-Za-z]{2,}$"
+        }
+       },
+       "required": [
+        "name",
+        "email"
+       ],
+       "additionalProperties": false
+      },
+      "shortUrl": {
+       "anyOf": [
+        {
+         "type": "string",
+         "format": "uri"
+        },
+        {
+         "type": "null"
+        }
+       ]
+      }
+     },
+     "required": [
+      "id",
+      "number",
+      "title",
+      "status",
+      "statusLabel",
+      "issuedAt",
+      "signedAt",
+      "expiresAt",
+      "customer",
+      "shortUrl"
+     ],
+     "additionalProperties": false
+    }
+   }
+  },
+  "required": [
+   "ok",
+   "page",
+   "limit",
+   "total",
+   "items"
+  ],
+  "additionalProperties": false
+ },
+ "GET /api/v1/contracts — فیلتر ایمیل ناموجود [key]": {
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+   "ok": {
+    "type": "boolean",
+    "const": true
+   },
+   "page": {
+    "type": "integer",
+    "minimum": 1,
+    "maximum": 9007199254740991
+   },
+   "limit": {
+    "type": "integer",
+    "minimum": 1,
+    "maximum": 50
+   },
+   "total": {
+    "type": "number",
+    "const": 0
+   },
+   "items": {
+    "type": "array",
+    "items": {
+     "not": {}
+    }
+   }
+  },
+  "required": [
+   "ok",
+   "page",
+   "limit",
+   "total",
+   "items"
+  ],
+  "additionalProperties": false
+ },
+ "GET /api/v1/contracts — فیلتر وضعیت نامعتبر [key]": {
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+   "ok": {
+    "type": "boolean",
+    "const": false
+   },
+   "error": {
+    "type": "string",
+    "const": "invalid_status"
+   },
+   "detail": {
+    "type": "string"
+   }
+  },
+  "required": [
+   "ok",
+   "error"
+  ],
+  "additionalProperties": false
+ },
+ "GET /api/v1/contracts/[id] — بدون کلید [anon]": {
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+   "ok": {
+    "type": "boolean",
+    "const": false
+   },
+   "error": {
+    "type": "string",
+    "minLength": 1
+   },
+   "detail": {
+    "type": "string"
+   }
+  },
+  "required": [
+   "ok",
+   "error"
+  ],
+  "additionalProperties": false
+ },
+ "GET /api/v1/contracts/[id] — جزئیات [key]": {
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+   "ok": {
+    "type": "boolean",
+    "const": true
+   },
+   "id": {
+    "type": "integer",
+    "minimum": -9007199254740991,
+    "maximum": 9007199254740991
+   },
+   "number": {
+    "type": "string"
+   },
+   "title": {
+    "type": "string"
+   },
+   "status": {
+    "type": "string"
+   },
+   "issuedAt": {
+    "type": "string"
+   },
+   "expiresAt": {
+    "type": [
+     "string",
+     "null"
+    ]
+   },
+   "signedAt": {
+    "type": [
+     "string",
+     "null"
+    ]
+   },
+   "docHash": {
+    "anyOf": [
+     {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+     },
+     {
+      "type": "null"
+     }
+    ]
+   },
+   "shortUrl": {
+    "type": [
+     "string",
+     "null"
+    ]
+   },
+   "signers": {
+    "type": "array",
+    "items": {
+     "type": "object",
+     "properties": {
+      "position": {
+       "type": "integer",
+       "minimum": -9007199254740991,
+       "maximum": 9007199254740991
+      },
+      "label": {
+       "type": "string"
+      },
+      "status": {
+       "type": "string"
+      },
+      "signedAt": {
+       "type": [
+        "string",
+        "null"
+       ]
+      }
+     },
+     "required": [
+      "position",
+      "label",
+      "status",
+      "signedAt"
+     ],
+     "additionalProperties": false
+    }
+   }
+  },
+  "required": [
+   "ok",
+   "id",
+   "number",
+   "title",
+   "status",
+   "issuedAt",
+   "expiresAt",
+   "signedAt",
+   "docHash",
+   "shortUrl",
+   "signers"
+  ],
+  "additionalProperties": false
+ },
+ "GET /api/v1/contracts/[id] — شناسه نامعتبر [key]": {
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+   "ok": {
+    "type": "boolean",
+    "const": false
+   },
+   "error": {
+    "type": "string",
+    "const": "invalid_id"
+   },
+   "detail": {
+    "type": "string"
+   }
+  },
+  "required": [
+   "ok",
+   "error"
+  ],
+  "additionalProperties": false
+ },
+ "GET /api/v1/contracts/[id] — ناموجود [key]": {
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+   "ok": {
+    "type": "boolean",
+    "const": false
+   },
+   "error": {
+    "type": "string",
+    "const": "not_found"
+   },
+   "detail": {
+    "type": "string"
+   }
+  },
+  "required": [
+   "ok",
+   "error"
+  ],
+  "additionalProperties": false
+ },
+ "GET /api/v1/stats — آمار با کلید [key]": {
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+   "ok": {
+    "type": "boolean",
+    "const": true
+   },
+   "workspace": {
+    "type": "string"
+   },
+   "counts": {
+    "type": "object",
+    "properties": {
+     "all": {
+      "type": "number"
+     },
+     "draft": {
+      "type": "number"
+     },
+     "sent": {
+      "type": "number"
+     },
+     "signed": {
+      "type": "number"
+     },
+     "rejected": {
+      "type": "number"
+     },
+     "expired": {
+      "type": "number"
+     },
+     "cancelled": {
+      "type": "number"
+     }
+    },
+    "required": [
+     "all",
+     "draft",
+     "sent",
+     "signed",
+     "rejected",
+     "expired",
+     "cancelled"
+    ],
+    "additionalProperties": false
+   },
+   "stats": {
+    "type": "object",
+    "properties": {
+     "total": {
+      "type": "number"
+     },
+     "signed": {
+      "type": "number"
+     },
+     "pending": {
+      "type": "number"
+     },
+     "rate": {
+      "type": "number"
+     },
+     "expiringSoon": {
+      "type": "number"
+     },
+     "avgHours": {
+      "type": [
+       "number",
+       "null"
+      ]
+     }
+    },
+    "required": [
+     "total",
+     "signed",
+     "pending",
+     "rate",
+     "expiringSoon",
+     "avgHours"
+    ],
+    "additionalProperties": false
+   }
+  },
+  "required": [
+   "ok",
+   "workspace",
+   "counts",
+   "stats"
+  ],
+  "additionalProperties": false
+ },
+ "GET /api/v1/stats — بدون کلید [anon]": {
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+   "ok": {
+    "type": "boolean",
+    "const": false
+   },
+   "error": {
+    "type": "string",
+    "const": "invalid_api_key"
+   },
+   "detail": {
+    "type": "string"
+   }
+  },
+  "required": [
+   "ok",
+   "error"
+  ],
+  "additionalProperties": false
+ },
+ "GET /api/v1/stats — کلید بدشکل [badkey]": {
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+   "ok": {
+    "type": "boolean",
+    "const": false
+   },
+   "error": {
+    "type": "string",
+    "const": "invalid_api_key"
+   },
+   "detail": {
+    "type": "string"
+   }
+  },
+  "required": [
+   "ok",
+   "error"
+  ],
+  "additionalProperties": false
+ },
+ "GET /api/v1/stats — نشست مرورگر جای کلید نیست [admin]": {
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+   "ok": {
+    "type": "boolean",
+    "const": false
+   },
+   "error": {
+    "type": "string",
+    "minLength": 1
+   },
+   "detail": {
+    "type": "string"
+   }
+  },
+  "required": [
+   "ok",
+   "error"
+  ],
+  "additionalProperties": false
+ },
+ "GET /api/v1/templates — بدون کلید [anon]": {
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+   "ok": {
+    "type": "boolean",
+    "const": false
+   },
+   "error": {
+    "type": "string",
+    "minLength": 1
+   },
+   "detail": {
+    "type": "string"
+   }
+  },
+  "required": [
+   "ok",
+   "error"
+  ],
+  "additionalProperties": false
+ },
+ "GET /api/v1/templates — فهرست قالب‌ها [key]": {
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+   "ok": {
+    "type": "boolean",
+    "const": true
+   },
+   "items": {
+    "minItems": 1,
+    "type": "array",
+    "items": {
+     "type": "object",
+     "properties": {
+      "id": {
+       "type": "integer",
+       "minimum": -9007199254740991,
+       "maximum": 9007199254740991
+      },
+      "title": {
+       "type": "string",
+       "minLength": 1
+      },
+      "description": {
+       "type": [
+        "string",
+        "null"
+       ]
+      }
+     },
+     "required": [
+      "id",
+      "title"
+     ],
+     "additionalProperties": false
+    }
+   }
+  },
+  "required": [
+   "ok",
+   "items"
+  ],
+  "additionalProperties": false
+ },
+ "POST /api/ai/contract — توضیح کوتاه [admin]": {
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+   "ok": {
+    "type": "boolean",
+    "const": false
+   },
+   "error": {
+    "type": "string",
+    "minLength": 1
+   },
+   "detail": {
+    "type": "string"
+   }
+  },
+  "required": [
+   "ok",
+   "error"
+  ],
+  "additionalProperties": false
+ },
+ "POST /api/ai/test — بدون ورود [anon]": {
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+   "ok": {
+    "type": "boolean",
+    "const": false
+   },
+   "error": {
+    "type": "string",
+    "minLength": 1
+   },
+   "detail": {
+    "type": "string"
+   }
+  },
+  "required": [
+   "ok",
+   "error"
+  ],
+  "additionalProperties": false
+ },
+ "POST /api/contracts/[id]/attachments — آپلود بدون ورود [anon]": {
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+   "ok": {
+    "type": "boolean",
+    "const": false
+   },
+   "error": {
+    "type": "string",
+    "minLength": 1
+   },
+   "detail": {
+    "type": "string"
+   }
+  },
+  "required": [
+   "ok",
+   "error"
+  ],
+  "additionalProperties": false
+ },
+ "POST /api/contracts/[id]/attachments — آپلود نامعتبر [admin]": {
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+   "ok": {
+    "type": "boolean",
+    "const": false
+   },
+   "error": {
+    "type": "string",
+    "minLength": 1
+   },
+   "detail": {
+    "type": "string"
+   }
+  },
+  "required": [
+   "ok",
+   "error"
+  ],
+  "additionalProperties": false
+ },
+ "POST /api/landing/upload — بدون فایل [admin]": {
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+   "ok": {
+    "type": "boolean",
+    "const": false
+   },
+   "error": {
+    "type": "string",
+    "minLength": 1
+   },
+   "detail": {
+    "type": "string"
+   }
+  },
+  "required": [
+   "ok",
+   "error"
+  ],
+  "additionalProperties": false
+ },
+ "POST /api/landing/upload — بدون ورود [anon]": {
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+   "ok": {
+    "type": "boolean",
+    "const": false
+   },
+   "error": {
+    "type": "string",
+    "minLength": 1
+   },
+   "detail": {
+    "type": "string"
+   }
+  },
+  "required": [
+   "ok",
+   "error"
+  ],
+  "additionalProperties": false
+ },
+ "POST /api/license/v1/check — سرور لایسنس خاموش [anon]": {
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+   "ok": {
+    "type": "boolean",
+    "const": false
+   },
+   "error": {
+    "type": "string",
+    "const": "not_found"
+   },
+   "detail": {
+    "type": "string"
+   }
+  },
+  "required": [
+   "ok",
+   "error"
+  ],
+  "additionalProperties": false
+ },
+ "POST /api/notifications — علامت خوانده‌شدن [user]": {
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+   "ok": {
+    "type": "boolean",
+    "const": true
+   },
+   "changed": {
+    "type": "integer",
+    "minimum": -9007199254740991,
+    "maximum": 9007199254740991
+   },
+   "unread": {
+    "type": "integer",
+    "minimum": -9007199254740991,
+    "maximum": 9007199254740991
+   }
+  },
+  "required": [
+   "ok",
+   "changed",
+   "unread"
+  ],
+  "additionalProperties": false
+ },
+ "POST /api/sign/[token]/attachments — بدون نشست OTP [anon]": {
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+   "ok": {
+    "type": "boolean",
+    "const": false
+   },
+   "error": {
+    "type": "string",
+    "minLength": 1
+   },
+   "detail": {
+    "type": "string"
+   }
+  },
+  "required": [
+   "ok",
+   "error"
+  ],
+  "additionalProperties": false
+ },
+ "POST /api/updates/v1/check — سرور لایسنس خاموش [anon]": {
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+   "ok": {
+    "type": "boolean",
+    "const": false
+   },
+   "error": {
+    "type": "string",
+    "const": "not_found"
+   },
+   "detail": {
+    "type": "string"
+   }
+  },
+  "required": [
+   "ok",
+   "error"
+  ],
+  "additionalProperties": false
+ },
+ "POST /api/updates/v1/download — سرور لایسنس خاموش [anon]": {
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+   "ok": {
+    "type": "boolean",
+    "const": false
+   },
+   "error": {
+    "type": "string",
+    "const": "not_found"
+   },
+   "detail": {
+    "type": "string"
+   }
+  },
+  "required": [
+   "ok",
+   "error"
+  ],
+  "additionalProperties": false
+ },
+ "POST /api/v1/connect/complete — دست‌دادن نامعتبر [anon]": {
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+   "ok": {
+    "type": "boolean",
+    "const": false
+   },
+   "error": {
+    "type": "string",
+    "const": "handshake_invalid"
+   },
+   "detail": {
+    "type": "string"
+   }
+  },
+  "required": [
+   "ok",
+   "error"
+  ],
+  "additionalProperties": false
+ },
+ "POST /api/v1/connect/disconnect — بدون کلید [anon]": {
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+   "ok": {
+    "type": "boolean",
+    "const": false
+   },
+   "error": {
+    "type": "string",
+    "minLength": 1
+   },
+   "detail": {
+    "type": "string"
+   }
+  },
+  "required": [
+   "ok",
+   "error"
+  ],
+  "additionalProperties": false
+ },
+ "POST /api/v1/connect/register — شناسه‌ی نصب نامعتبر [anon]": {
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+   "ok": {
+    "type": "boolean",
+    "const": false
+   },
+   "error": {
+    "type": "string",
+    "const": "install_id_invalid"
+   },
+   "detail": {
+    "type": "string"
+   }
+  },
+  "required": [
+   "ok",
+   "error"
+  ],
+  "additionalProperties": false
+ },
+ "POST /api/v1/connect/sso — بدون کلید [anon]": {
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+   "ok": {
+    "type": "boolean",
+    "const": false
+   },
+   "error": {
+    "type": "string",
+    "minLength": 1
+   },
+   "detail": {
+    "type": "string"
+   }
+  },
+  "required": [
+   "ok",
+   "error"
+  ],
+  "additionalProperties": false
+ },
+ "POST /api/v1/connect/status — بدون کلید [anon]": {
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+   "ok": {
+    "type": "boolean",
+    "const": false
+   },
+   "error": {
+    "type": "string",
+    "minLength": 1
+   },
+   "detail": {
+    "type": "string"
+   }
+  },
+  "required": [
+   "ok",
+   "error"
+  ],
+  "additionalProperties": false
+ },
+ "POST /api/v1/contracts — ایمیل مشتری نامعتبر [key]": {
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+   "ok": {
+    "type": "boolean",
+    "const": false
+   },
+   "error": {
+    "type": "string",
+    "const": "customer_email_invalid"
+   },
+   "detail": {
+    "type": "string"
+   }
+  },
+  "required": [
+   "ok",
+   "error"
+  ],
+  "additionalProperties": false
+ },
+ "POST /api/v1/contracts — بدنه‌ی خالی [key]": {
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+   "ok": {
+    "type": "boolean",
+    "const": false
+   },
+   "error": {
+    "type": "string",
+    "const": "templateId_required"
+   },
+   "detail": {
+    "type": "string"
+   }
+  },
+  "required": [
+   "ok",
+   "error"
+  ],
+  "additionalProperties": false
+ },
+ "POST /api/v1/contracts — بدون کلید [anon]": {
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+   "ok": {
+    "type": "boolean",
+    "const": false
+   },
+   "error": {
+    "type": "string",
+    "minLength": 1
+   },
+   "detail": {
+    "type": "string"
+   }
+  },
+  "required": [
+   "ok",
+   "error"
+  ],
+  "additionalProperties": false
+ },
+ "POST /api/v1/contracts — صدور پیش‌نویس [key]": {
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+   "ok": {
+    "type": "boolean",
+    "const": true
+   },
+   "id": {
+    "type": "integer",
+    "minimum": -9007199254740991,
+    "maximum": 9007199254740991
+   },
+   "status": {
+    "type": "string",
+    "const": "draft"
+   },
+   "signUrl": {
+    "type": "null"
+   },
+   "shortUrl": {
+    "type": "null"
+   }
+  },
+  "required": [
+   "ok",
+   "id",
+   "status",
+   "signUrl",
+   "shortUrl"
+  ],
+  "additionalProperties": false
+ },
+ "POST /api/v1/contracts — قالب ناموجود [key]": {
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+   "ok": {
+    "type": "boolean",
+    "const": false
+   },
+   "error": {
+    "type": "string",
+    "const": "template_not_found"
+   },
+   "detail": {
+    "type": "string"
+   }
+  },
+  "required": [
+   "ok",
+   "error"
+  ],
+  "additionalProperties": false
+ },
+ "POST /api/v1/contracts — موبایل نامعتبر [key]": {
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+   "ok": {
+    "type": "boolean",
+    "const": false
+   },
+   "error": {
+    "type": "string",
+    "const": "customer_mobile_invalid"
+   },
+   "detail": {
+    "type": "string"
+   }
+  },
+  "required": [
+   "ok",
+   "error"
+  ],
+  "additionalProperties": false
+ },
+ "PUT /api/platform/releases — سرور لایسنس خاموش [anon]": {
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+   "ok": {
+    "type": "boolean",
+    "const": false
+   },
+   "error": {
+    "type": "string",
+    "minLength": 1
+   },
+   "detail": {
+    "type": "string"
+   }
+  },
+  "required": [
+   "ok",
+   "error"
+  ],
+  "additionalProperties": false
+ }
+}

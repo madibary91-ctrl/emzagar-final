@@ -1,0 +1,11 @@
+export { DocError, DOCX_IMAGES_MESSAGE, MAX_UPLOAD_BYTES, DRAFT_CODE_RE, pageGeom, BP, toBp } from "./core";
+export type { IngestResult, SourceRow, DocFieldRow } from "./core";
+export { ingestUpload, readSourceFile } from "./ingest";
+export { createDraft, getDraft, getUsableDraft, parseMeta, purgeStaleDrafts, sourceStubHtml } from "./drafts";
+export type { Draft } from "./drafts";
+export { attachSourceToContract, removeSourceFiles, getSource, listDocFields } from "./sources";
+export { prepareDocValues, prepareSigningFields } from "./fields";
+export type { FillableField } from "./fields";
+export { composeOnPdf, composeSourcePdf } from "./compose";
+export type { ComposeSource, ComposeField } from "./compose";
+export type { FieldKind } from "../placement";
