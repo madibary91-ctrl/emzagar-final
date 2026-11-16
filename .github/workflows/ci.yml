@@ -1,0 +1,156 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  NODE_VERSION: "22"
+  PGPASSWORD: postgres
+  TEST_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/emz_test
+  E2E_ADMIN_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/postgres
+
+jobs:
+  static:
+    name: Typecheck · Lint · Build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - name: Infra guard (scripts · lockfile · compose · backup dirs)
+        run: npm run infra:check
+      - name: Backup/restore self-test (fake docker)
+        run: npm run infra:selftest
+      - run: npx next typegen
+      - run: npx tsc --noEmit --pretty false
+      - run: npm run lint --if-present
+        continue-on-error: true
+      - name: Build
+        run: npm run build
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/app_db
+      - name: Plugin signature (dev check)
+        run: npm run plugin:verify
+
+  unit:
+    name: Vitest (unit + integration)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - name: Prepare test database
+        run: psql -h 127.0.0.1 -U postgres -c "CREATE DATABASE emz_test" || true
+      - run: npm test
+
+  e2e:
+    name: E2E (Playwright) incl. docx upload
+    runs-on: ubuntu-latest
+    needs: [static, unit]
+    timeout-minutes: 45
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: npx playwright install --with-deps chromium
+      - name: E2E (build + server + browser scenarios)
+        run: npm run test:e2e -- --skip-unit --build
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: e2e-report
+          path: |
+            e2e/report
+            test-results
+          if-no-files-found: ignore
+
+  qa:
+    name: QA (smoke · contract · security)
+    runs-on: ubuntu-latest
+    needs: [static, unit]
+    timeout-minutes: 45
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: npx playwright install --with-deps chromium
+      - name: QA layers
+        run: npm run test:qa -- --build --layers smoke,contract,security
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: qa-report
+          path: qa/report
+          if-no-files-found: ignore
+
+  docker:
+    name: Docker image (reproducible build · no test/QA files)
+    runs-on: ubuntu-latest
+    needs: [static]
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compose files are valid
+        run: |
+          printf 'DB_PASSWORD=ci\nAPP_DOMAIN=x.ir\nACME_EMAIL=ci@example.org\n' > .env
+          docker compose -f docker-compose.prod.yml config -q
+          docker compose -f docker-compose.yml config -q
+          # ACME_EMAIL خالی/نبود باید «همان ابتدا» و با پیام روشن رد شود، نه اینکه Caddy بالا نیاید (INF-04)
+          printf 'DB_PASSWORD=ci\nAPP_DOMAIN=x.ir\n' > /tmp/noemail.env
+          out="$(docker compose -f docker-compose.prod.yml --env-file /tmp/noemail.env config -q 2>&1 || true)"
+          echo "$out" | grep -q ACME_EMAIL || { echo "ACME_EMAIL خالی باید خطا بدهد: $out"; exit 1; }
+      - name: Build image (npm ci, standalone)
+        run: docker build -t emzagar-app:ci .
+      - name: Image must not contain tests / QA / docs / secrets
+        run: |
+          docker run --rm --entrypoint sh emzagar-app:ci -c '
+            for p in e2e qa tests docs scripts simulator .env backups SECURITY-AUDIT.md Dockerfile; do
+              if [ -e "/app/$p" ]; then echo "✗ /app/$p داخل ایمیج production است"; exit 1; fi
+            done; echo "✓ ایمیج تمیز است"'

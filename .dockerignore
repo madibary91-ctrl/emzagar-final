@@ -1,0 +1,47 @@
+# ── کنترل نسخه و CI ──
+.git
+.github
+.gitignore
+
+# ── وابستگی/خروجی ساخت (داخل ایمیج دوباره ساخته می‌شود) ──
+node_modules
+.next
+release
+tsconfig.tsbuildinfo
+*.log
+
+# ── رازها و داده‌ی عملیاتی: هرگز وارد context ساخت نشوند (INF-13) ──
+.env
+.env.*
+release-keys
+storage
+backups
+*.dump
+*.sql.gz
+*.tar.gz.enc
+.test-storage
+.e2e-storage
+.qa-storage
+.update-rollback
+.update-staging
+tmp
+
+# ── آزمون‌ها و ابزار QA (INF-07): نه در ایمیج production، نه در context ساخت ──
+tests
+e2e
+qa
+simulator
+test-results
+playwright-report
+playwright.config.ts
+vitest.config.mts
+.axe-detail.mjs
+
+# ── مستندات و ابزارهای میزبان (روی خودِ VPS اجرا می‌شوند، نه داخل کانتینر) ──
+docs
+scripts
+*.md
+Dockerfile
+docker-compose*.yml
+Caddyfile
+.dockerignore

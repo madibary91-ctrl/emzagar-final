@@ -1,0 +1,14 @@
+# رفع ۶ باگ سطح بالای باقی‌مانده (DB-01، DB-04، DB-05، PERF-01، PERF-02، PERF-03)
+
+آزمون‌های موجود دست‌نخورده‌اند؛ آزمون‌های جدید فقط در `tests/integration/high-fixes-round2.test.ts` هستند.
+
+| کد | راه‌حل | فایل‌های اصلی |
+|---|---|---|
+| **DB-01** | ۱۰۰ Foreign Key (DEFERRABLE) با سیاست `ON DELETE` سنجیده: فرزندانِ قرارداد/فضای کاری `CASCADE`، سوابق مالی و مالکیت `NO ACTION`، ارجاع‌های اختیاری `SET NULL`. روی دیتابیس موجود با `NOT VALID` + `VALIDATE` نصب می‌شود (ردیف یتیم نصب را نمی‌شکند؛ قید برای نوشتن‌های جدید اعمال است). برای ستون FK ایندکس خودکار ساخته می‌شود. استثناهای آگاهانه: `otp_codes` (جدول موقتِ چنددقیقه‌ای)، `audit_logs.workspace_id`/`notifications.workspace_id`/`connect_tokens`/`referrals.referred_workspace_id` (۰ = سطح پلتفرم؛ ممیزی نباید با حذف فضای کاری پاک شود). `logAudit` مقدار `userId=0` را `NULL` ذخیره می‌کند. بازیابی بک‌آپ با `SET CONSTRAINTS ALL DEFERRED` ترتیب‌-مستقل است. | `src/db/schema.ts`، `src/db/ddl.ts` |
+| **DB-04** | `deleteAccount` یک تراکنش با قفل ردیف کاربر است. اضافه شد: حذف مدارک KYC (ردیف + فایل رمزنگاری‌شده)، تصویر امضا (برای قراردادهای دارای PDF مهرشده یا ناتمام؛ تا ساخته‌شدن PDF برای قرارداد نهایی حفظ می‌شود)، تیکت‌های کاربر. فایل‌های دیسک از طریق Outbox پس از commit حذف می‌شوند. | `src/modules/privacy/service.ts` |
+| **DB-05** | `schema-sql.ts` دیگر فایل تولیدی نیست؛ DDL در لحظه از `schema.ts` ساخته می‌شود. ارتقا در یک تراکنش و به ترتیب (افزونه ← جدول ← ستون ← ایندکس ← FK)؛ هر خطا `SchemaApplyError` است و در production بوت را متوقف می‌کند؛ پس از ارتقا وجود همه‌ی ستون‌ها راستی‌آزمایی می‌شود. `scripts/gen-schema-sql.mjs` اکنون فقط همگامی با drizzle-kit را برای CI می‌سنجد. | `src/db/ddl.ts`، `src/modules/install/*` |
+| **PERF-01** | `hashPasswordAsync`/`verifyPasswordAsync` (scrypt در threadpool، با سقف هم‌زمانی و صف محدود). همه‌ی مسیرهای وب (ورود، ثبت‌نام، بازنشانی، لینک، تغییر رمز، نصب) ناهمگام شدند. حساب‌های بدون رمز از `unusablePasswordHash()` (بدون هزینه‌ی CPU) استفاده می‌کنند. قالب هش یکسان است؛ نیازی به مهاجرت نیست. | `src/lib/password.ts` |
+| **PERF-02** | ایندکس‌های trigram (`pg_trgm`) روی شماره/عنوان/برچسب قرارداد و نام/ایمیل کاربر؛ جستجو به دو زیرپرس‌وجوی ایندکس‌پذیر + UNION شکسته شد؛ `count(*)` فقط وقتی صفحه پر است و با سقف ۱۰٬۰۰۰ اجرا می‌شود؛ شمارش `contract_comments` به‌جای زیرپرس‌وجوی هر ردیف، یک GROUP BY دسته‌ای با ایندکس جزئی است. | `src/modules/contracts/service.ts` |
+| **PERF-03** | صف ماندگار `background_jobs` (Outbox، `SKIP LOCKED`، backoff نمایی، `onDead`). امضا فقط ثبت می‌شود؛ PDF، ایمیل (هر گیرنده جدا و ایدمپوتنت) و اعلان‌ها بیرون از درخواست اجرا می‌شوند و با ری‌استارت از بین نمی‌روند. در `NODE_ENV=test` پیش‌فرض حالت `inline` است تا آزمون‌های موجود همان نتیجه را همگام ببینند (`JOBS_MODE=background|inline` قابل‌تنظیم). | `src/modules/jobs/*`، `src/modules/signing/finalize.ts` |
+
+نکته‌ی عملیاتی: فایل‌های فونت `assets/fonts/Vazirmatn-*.ttf` در مخزن نیستند (آزمون‌های PDF به آن‌ها نیاز دارند).

@@ -1,0 +1,134 @@
+/* امضاگیر — صفحه‌های کنترل: ماژول‌ها، محدودیت، داده‌ها، لایسنس، وضعیت سیستم، ویزارد */
+.emz-ctl{--emz:#0f766e;--emz-soft:#ecfdf5;--ok:#16a34a;--warn:#d97706;--bad:#dc2626;--grey:#94a3b8;--line:#e2e8f0;--ink:#0f172a;--mut:#64748b;max-width:1200px}
+.emz-ctl .emz-card{background:#fff;border:1px solid var(--line);border-radius:14px;padding:20px 22px;margin:16px 0;box-shadow:0 1px 2px rgba(15,23,42,.04)}
+.emz-ctl .emz-card h2{margin:0 0 10px;font-size:17px;padding:0}
+.emz-ctl .emz-card h3{margin:18px 0 8px}
+.emz-ctl .emz-actions{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.emz-ctl .emz-err{color:var(--bad);font-weight:600}
+.emz-ctl .emz-code{background:#0f172a;color:#e2e8f0;padding:14px 16px;border-radius:10px;overflow:auto;font-size:12.5px;line-height:1.7;direction:ltr;text-align:left;white-space:pre-wrap}
+.emz-ctl .emz-tabs{margin-bottom:6px}
+.emz-ctl .emz-tab-ext{margin-inline-start:auto!important;background:#f0fdf4}
+.emz-ctl .emz-chips{display:flex;flex-wrap:wrap;gap:8px}
+.emz-ctl .emz-chip{display:inline-flex;gap:6px;align-items:center;border:1px solid var(--line);border-radius:999px;padding:6px 12px;background:#f8fafc}
+.emz-ctl .emz-inline-form{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:10px 0}
+.emz-ctl .emz-kv th{width:180px}
+.emz-ctl .emz-btn-danger{background:#dc2626!important;border-color:#b91c1c!important;color:#fff!important}
+.emz-ctl .emz-btn-danger:hover{background:#b91c1c!important}
+
+/* چراغ‌ها */
+.emz-lamp{display:inline-block;flex:none;width:14px;height:14px;border-radius:50%;background:var(--grey);box-shadow:0 0 0 3px rgba(148,163,184,.25);vertical-align:middle}
+.emz-lamp.is-green{background:var(--ok);box-shadow:0 0 0 3px rgba(22,163,74,.22),0 0 12px rgba(22,163,74,.55)}
+.emz-lamp.is-amber{background:var(--warn);box-shadow:0 0 0 3px rgba(217,119,6,.22),0 0 12px rgba(217,119,6,.5)}
+.emz-lamp.is-red{background:var(--bad);box-shadow:0 0 0 3px rgba(220,38,38,.22),0 0 12px rgba(220,38,38,.55);animation:emz-blink 1.4s infinite}
+.emz-lamp.is-pulse{animation:emz-pulse 1.1s ease-in-out infinite}
+@keyframes emz-pulse{50%{opacity:.35}}
+@keyframes emz-blink{50%{box-shadow:0 0 0 3px rgba(220,38,38,.12),0 0 4px rgba(220,38,38,.2)}}
+@media (prefers-reduced-motion:reduce){.emz-lamp.is-red,.emz-lamp.is-pulse{animation:none}}
+
+/* وضعیت سیستم */
+.emz-banner{display:flex;align-items:center;gap:16px;flex-wrap:wrap;border-radius:16px;padding:18px 22px;margin:14px 0;border:1px solid var(--line);background:#fff}
+.emz-banner .emz-lamp{width:24px;height:24px}
+.emz-banner h2{margin:0;font-size:20px}
+.emz-banner p{margin:2px 0 0;color:var(--mut)}
+.emz-banner.is-ok{background:linear-gradient(135deg,#f0fdf4,#fff);border-color:#bbf7d0}
+.emz-banner.is-warn{background:linear-gradient(135deg,#fffbeb,#fff);border-color:#fde68a}
+.emz-banner.is-bad{background:linear-gradient(135deg,#fef2f2,#fff);border-color:#fecaca}
+.emz-banner-btn{margin-inline-start:auto;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.emz-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(380px,1fr));gap:0 16px}
+.emz-checks{list-style:none;margin:0;padding:0}
+.emz-checks li{display:flex;gap:12px;align-items:flex-start;padding:11px 0;border-top:1px solid #f1f5f9}
+.emz-checks li:first-child{border-top:0}
+.emz-checks li .emz-lamp{margin-top:3px}
+.emz-checks li div{flex:1;min-width:0}
+.emz-checks li b{display:block;font-size:13.5px}
+.emz-checks li small{display:block;color:var(--mut);line-height:1.7;margin-top:2px;word-break:break-word}
+.emz-checks .emz-fix{white-space:nowrap;text-decoration:none;font-size:12px;border:1px solid var(--line);border-radius:999px;padding:3px 10px;color:var(--emz)}
+.emz-checks li.st-bad small{color:#b91c1c}
+
+/* pill */
+.emz-pill{display:inline-block;border-radius:999px;padding:3px 10px;font-size:12px;font-weight:600;white-space:nowrap}
+.emz-pill-ok{background:#dcfce7;color:#166534}
+.emz-pill-off{background:#f1f5f9;color:#475569}
+.emz-pill-warn{background:#fef3c7;color:#92400e}
+.emz-pill-bad{background:#fee2e2;color:#991b1b}
+
+/* ماژول‌ها */
+.emz-mods{display:grid;gap:8px;margin:14px 0}
+.emz-mod{display:flex;align-items:center;gap:14px;border:1px solid var(--line);border-radius:12px;padding:12px 14px;background:#fff;cursor:pointer;transition:border-color .15s,background .15s}
+.emz-mod:hover{border-color:#99f6e4;background:#f8fffd}
+.emz-mod.is-off,.emz-mod.is-locked{background:#f8fafc}
+.emz-mod.is-auto{background:#fef2f2;border-color:#fecaca}
+.emz-mod-ico{font-size:22px;width:40px;height:40px;display:grid;place-items:center;background:var(--emz-soft);border-radius:10px;flex:none}
+.emz-mod-body{flex:1;min-width:0}
+.emz-mod-body b{display:block}
+.emz-mod-body small{display:block;color:var(--mut);line-height:1.7}
+.emz-mod-err{color:#b91c1c!important;font-family:ui-monospace,monospace;font-size:11px;margin-top:4px}
+.emz-switch{position:relative;flex:none;width:46px;height:26px}
+.emz-switch input{position:absolute;inset:0;opacity:0;margin:0;cursor:pointer;z-index:2;width:100%;height:100%}
+.emz-switch i{position:absolute;inset:0;border-radius:999px;background:#cbd5e1;transition:background .2s}
+.emz-switch i:after{content:"";position:absolute;top:3px;inset-inline-start:3px;width:20px;height:20px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.3);transition:transform .2s}
+.emz-switch input:checked+i{background:var(--emz)}
+.emz-switch input:checked+i:after{transform:translateX(20px)}
+[dir=rtl] .emz-switch input:checked+i:after{transform:translateX(-20px)}
+.emz-switch input:focus-visible+i{outline:2px solid var(--emz);outline-offset:2px}
+.emz-switch input:disabled+i{opacity:.5}
+
+/* قفل اضطراری */
+.emz-lock-head{display:flex;gap:16px;align-items:center;flex-wrap:wrap}
+.emz-lock-head h2{margin:0}
+.emz-lock-head .emz-lamp{width:22px;height:22px}
+.emz-lock-btn{margin-inline-start:auto}
+.emz-lock.is-locked{border-color:#fecaca;background:#fff7f7}
+.emz-stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-top:16px}
+.emz-stats div{background:#f8fafc;border-radius:12px;padding:12px 14px}
+.emz-stats b{display:block;font-size:24px;line-height:1.2}
+.emz-stats span{color:var(--mut);font-size:12px}
+
+/* لایسنس/نسخه */
+.emz-versions{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;margin:8px 0 14px}
+.emz-versions div{background:#f8fafc;border-radius:12px;padding:10px 14px}
+.emz-versions span{display:block;color:var(--mut);font-size:12px}
+.emz-versions b{font-size:18px}
+
+/* ویزارد */
+.emz-welcome{max-width:980px}
+.emz-hero{display:flex;gap:20px;align-items:center;justify-content:space-between;background:linear-gradient(135deg,#0f766e,#115e59 55%,#134e4a);color:#fff;border-radius:20px;padding:26px 30px;margin:18px 0}
+.emz-hero h2{color:#fff;font-size:26px;margin:4px 0 6px;padding:0}
+.emz-hero p{margin:0;opacity:.9;font-size:14px}
+.emz-eyebrow{display:inline-block;background:rgba(255,255,255,.16);border-radius:999px;padding:2px 10px;font-size:12px;direction:ltr}
+.emz-ring{--p:0;width:84px;height:84px;border-radius:50%;flex:none;display:grid;place-items:center;background:conic-gradient(#5eead4 calc(var(--p)*1%),rgba(255,255,255,.18) 0)}
+.emz-ring b{width:62px;height:62px;border-radius:50%;background:#0f766e;display:grid;place-items:center;font-size:15px}
+.emz-steps{list-style:none;margin:0 0 14px;padding:0;display:flex;gap:6px;flex-wrap:wrap}
+.emz-steps button{display:flex;gap:8px;align-items:center;background:#fff;border:1px solid var(--line);border-radius:999px;padding:6px 14px 6px 10px;cursor:pointer;font:inherit;color:var(--mut)}
+.emz-steps button span{width:22px;height:22px;border-radius:50%;background:#f1f5f9;display:grid;place-items:center;font-size:12px}
+.emz-steps button.is-active{border-color:var(--emz);color:var(--ink);font-weight:600}
+.emz-steps button.is-active span{background:var(--emz);color:#fff}
+.emz-steps button.is-seen span{background:#99f6e4}
+.emz-pane{background:#fff;border:1px solid var(--line);border-radius:16px;padding:22px 26px;margin:0 0 14px}
+.emz-welcome.js .emz-pane{display:none}
+.emz-welcome.js .emz-pane.is-active{display:block}
+.emz-pane h2{margin-top:0;font-size:19px}
+.emz-cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px;margin:12px 0}
+.emz-tile{display:block;text-decoration:none;color:inherit;border:1px solid var(--line);border-radius:14px;padding:16px;background:#fafffe}
+a.emz-tile:hover{border-color:var(--emz);box-shadow:0 4px 14px rgba(15,118,110,.12)}
+.emz-tile b{font-size:26px}
+.emz-tile h3{margin:6px 0 4px;font-size:15px}
+.emz-tile p{margin:0;color:var(--mut);font-size:13px;line-height:1.8}
+.emz-status-line{display:flex;gap:10px;align-items:center;background:#f8fafc;border-radius:12px;padding:12px 16px}
+.emz-status-line a{margin-inline-start:auto}
+.emz-mini-kanban{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin:14px 0}
+.emz-mini-kanban>div{background:#f1f5f9;border-radius:12px;padding:10px;min-height:120px}
+.emz-mini-kanban h4{margin:0 0 8px;font-size:12px;color:var(--mut)}
+.emz-mini-kanban i{display:block;height:26px;background:#fff;border-radius:8px;margin-bottom:6px;box-shadow:0 1px 2px rgba(0,0,0,.08);border-inline-start:4px solid #38bdf8}
+.emz-mini-kanban .ok i{border-color:#22c55e}.emz-mini-kanban .no i{border-color:#ef4444}
+.emz-tips{margin:10px 0;padding-inline-start:20px;line-height:2}
+.emz-prov{list-style:none;display:flex;flex-wrap:wrap;gap:8px 18px;padding:0;margin:10px 0}
+.emz-prov li{display:flex;gap:8px;align-items:center}
+.emz-check-list{list-style:none;margin:0;padding:0}
+.emz-check-list li{display:flex;gap:10px;align-items:center;padding:9px 0;border-top:1px solid #f1f5f9}
+.emz-check-list li:first-child{border-top:0}
+.emz-wiz-nav{display:flex;gap:10px;align-items:center}
+.emz-wiz-nav #emz-pos{color:var(--mut)}
+.emz-wiz-nav .emz-skip{margin-inline-start:auto;color:var(--mut)}
+.emz-welcome:not(.js) .emz-wiz-nav #emz-prev,.emz-welcome:not(.js) .emz-wiz-nav #emz-next{display:none}
+@media (max-width:782px){.emz-mini-kanban{grid-template-columns:repeat(2,1fr)}.emz-grid{grid-template-columns:1fr}.emz-hero{flex-direction:column;align-items:flex-start}}

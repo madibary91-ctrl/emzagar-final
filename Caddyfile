@@ -1,0 +1,28 @@
+# HTTPS خودکار برای دامنه‌ی شما. DNS رکورد A دامنه باید به IP سرور اشاره کند.
+#
+# INF-04: ACME_EMAIL «الزامی» است. اگر خالی باشد، دستور `email` بدون آرگومان می‌ماند و Caddy اصلاً بالا نمی‌آید
+# (wrong argument count). برای همین docker-compose.prod.yml با «:?» روی متغیر ACME_EMAIL در همان ابتدا با پیام روشن متوقف می‌شود
+# و scripts/install-vps.sh ایمیل را اجباری و اعتبارسنجی می‌کند.
+{
+	email {$ACME_EMAIL}
+}
+
+{$APP_DOMAIN} {
+	encode zstd gzip
+	# بدنه‌های بزرگ (آپلود مدارک/PDF)
+	request_body {
+		max_size 60MB
+	}
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		-Server
+	}
+	reverse_proxy app:3000 {
+		health_uri /api/health
+		health_interval 30s
+		# گفتگوی زنده (SSE): پاسخ‌ها بدون بافر و فوری به مرورگر برسند
+		flush_interval -1
+	}
+}

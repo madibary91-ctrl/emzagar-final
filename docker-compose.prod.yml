@@ -1,0 +1,98 @@
+# امضاگیر — استقرار تولیدی روی VPS با HTTPS خودکار (Caddy + Let's Encrypt)
+# نصب خودکار:  sudo bash scripts/install-vps.sh sign.example.com you@yourdomain.ir
+# دستی:        cp .env.production.example .env  → مقادیر را پر کنید →  docker compose -f docker-compose.prod.yml up -d --build
+name: emzagar
+
+# INF-08: چرخش لاگ — بدون این، لاگ json-file بی‌نهایت رشد می‌کند و دیسک VPS پر می‌شود (۵ فایل × ۱۰ مگ برای هر سرویس)
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+    compress: "true"
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    logging: *default-logging
+    # INF-08: سقف حافظه (قابل تغییر با DB_MEM_LIMIT در .env؛ روی VPS دو گیگی ۷۵۰m پیشنهاد می‌شود)
+    mem_limit: ${DB_MEM_LIMIT:-1g}
+    environment:
+      POSTGRES_USER: emzagar
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD را در .env بگذارید}
+      POSTGRES_DB: emzagar
+    volumes:
+      - dbdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U emzagar -d emzagar"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    # پورت دیتابیس عمداً به بیرون باز نیست.
+
+  app:
+    build:
+      context: .
+      args:
+        # INF-11: کلید عمومی فروشنده هنگام build داخل ایمیج «تعبیه» می‌شود (ریشه‌ی اعتماد لایسنس؛ با env زمان اجرا قابل تغییر نیست).
+        # بدون این خط، ARG داخل Dockerfile همیشه خالی می‌ماند.
+        LICENSE_PUBLIC_KEY: ${LICENSE_PUBLIC_KEY:-}
+        NPM_REGISTRY: ${NPM_REGISTRY:-}
+    image: emzagar-app:latest
+    restart: unless-stopped
+    logging: *default-logging
+    # R-02: مهلت خاموشی نرم (SHUTDOWN_GRACE_MS پیش‌فرض ۲۰ث) — پیش‌فرض Docker فقط ۱۰ ثانیه است و پیش از آزادسازی سهمیه‌ی AI و کارهای صف SIGKILL می‌زد
+    stop_grace_period: 30s
+    # INF-08: سقف منابع — نشت حافظه/PDF بسیار بزرگ فقط خودِ app را (با restart خودکار) می‌اندازد، نه کل VPS را (و دیتابیس را).
+    # قابل تغییر با APP_MEM_LIMIT. heap نود عمداً کمی کمتر از سقف کانتینر است تا GC پیش از OOM-kill وارد عمل شود.
+    mem_limit: ${APP_MEM_LIMIT:-1536m}
+    pids_limit: 512
+    init: true            # پردازه‌ی init: سیگنال‌ها را درست می‌رساند و پردازه‌های zombie (healthcheck) را جمع می‌کند
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    depends_on:
+      db:
+        condition: service_healthy
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://emzagar:${DB_PASSWORD}@db:5432/emzagar
+      NODE_ENV: production
+      NODE_OPTIONS: --max-old-space-size=${APP_HEAP_MB:-1024}
+      TRUSTED_PROXY_HOPS: "1"   # پشت Caddy
+      BACKUP_DIR: /app/backups
+    volumes:
+      - storage:/app/storage
+      - backups:/app/backups   # CR-04: volume جدا از داده‌ی اصلی
+    expose:
+      - "3000"
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    logging: *default-logging
+    mem_limit: ${CADDY_MEM_LIMIT:-256m}
+    security_opt:
+      - no-new-privileges:true
+    depends_on:
+      - app
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      APP_DOMAIN: ${APP_DOMAIN:?APP_DOMAIN را در .env بگذارید}
+      # INF-04: الزامی — Caddy با email خالی اصلاً بالا نمی‌آید (باید ایمیل واقعی باشد؛ @example.com رد می‌شود)
+      ACME_EMAIL: ${ACME_EMAIL:?ACME_EMAIL را در .env بگذارید (ایمیل واقعی برای Let's Encrypt؛ Caddy بدون آن بالا نمی‌آید)}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  dbdata:
+  storage:
+  backups:
+  caddy_data:
+  caddy_config:
