@@ -14,9 +14,15 @@ export function passwordProblem(p: string): string | null {
   if (!/[A-Za-z\u0600-\u06FF]/.test(p) || !/\d/.test(p)) return "رمز عبور باید ترکیبی از حروف و عدد باشد.";
   return null;
 }
+/** حداکثر طول فیلدها: ورودی بی‌سقف (مثلاً رمز چند مگابایتی) هش‌کردن را به DoS تبدیل می‌کند و ستون‌ها را می‌شکند */
+export const ACCOUNT_LIMITS = { siteName: 100, name: 100, email: 254, mobile: 40, password: 200 } as const;
 export function validateAccount(a: AccountInput): string | null {
+  // L8: ورودی Server Action ساخته‌ی کلاینت است؛ نوع نادرست باید پیام فارسی بدهد نه TypeError (۵۰۰)
+  const x = a as unknown as Record<string, unknown> | null;
+  if (!x || typeof x !== "object" || !(Object.keys(ACCOUNT_LIMITS) as (keyof AccountInput)[]).every((k) => typeof x[k] === "string")) return "اطلاعات حساب مدیر نامعتبر است.";
   if (!a.siteName.trim()) return "نام سایت یا کسب‌وکار را وارد کنید.";
   if (!a.name.trim()) return "نام و نام‌خانوادگی را وارد کنید.";
+  for (const k of Object.keys(ACCOUNT_LIMITS) as (keyof typeof ACCOUNT_LIMITS)[]) if (a[k].length > ACCOUNT_LIMITS[k]) return "یکی از فیلدها بیش از حد بلند است.";
   if (!EMAIL_RE.test(a.email.trim())) return "ایمیل معتبر نیست.";
   if (!parseIranMobile(a.mobile)) return "موبایل باید مثل 09123456789 باشد (ارقام فارسی هم پذیرفته می‌شود).";
   return passwordProblem(a.password);

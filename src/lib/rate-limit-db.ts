@@ -1,7 +1,7 @@
 import crypto from "node:crypto";
 import { sql } from "drizzle-orm";
 import { db, outsideTransaction } from "@/db";
-import { effectiveLimit, rateLimit, registerPersistentReset, settlePendingResets } from "@/lib/rate-limit";
+import { canonicalRateKey, effectiveLimit, rateLimit, registerPersistentReset, settlePendingResets } from "@/lib/rate-limit";
 
 /**
  * M-04 — محدودکننده‌ی نرخ «پایدار» روی PostgreSQL (پنجره‌ی ثابت، اتمیک).
@@ -22,7 +22,7 @@ export type RateResult = { ok: boolean; retryAfter: number };
 
 export async function rateLimitDb(rawKey: string, rawLimit: number, windowMs: number): Promise<RateResult> {
   const limit = effectiveLimit(rawKey, rawLimit);
-  const key = hashKey(rawKey);
+  const key = hashKey(canonicalRateKey(rawKey));
   const ms = Math.max(1, Math.floor(windowMs));
   await settlePendingResets();
   try {
@@ -49,7 +49,7 @@ export async function rateLimitDb(rawKey: string, rawLimit: number, windowMs: nu
 /** بازنشانی یک سطل (مثلاً پس از ورود موفق) — هم دیتابیس و هم لایه‌ی حافظه‌ی همان کلید */
 export async function resetRateLimitDb(rawKey: string): Promise<void> {
   try {
-    await outsideTransaction(() => db.execute(sql`DELETE FROM rate_limit_buckets WHERE key = ${hashKey(rawKey)}`));
+    await outsideTransaction(() => db.execute(sql`DELETE FROM rate_limit_buckets WHERE key = ${hashKey(canonicalRateKey(rawKey))}`));
   } catch {
     /* بازنشانی بهترین-تلاش است؛ شکستش فقط یعنی سطل خودبه‌خود منقضی می‌شود */
   }
@@ -60,7 +60,7 @@ registerPersistentReset(resetRateLimitDb);
 /** خواندن بدون افزایش (برای نمایش/تصمیم‌گیری): آیا کلید هم‌اکنون از سقف گذشته است؟ */
 export async function isBlockedDb(rawKey: string, rawLimit: number): Promise<boolean> {
   try {
-    const res = await outsideTransaction(() => db.execute(sql`SELECT hits FROM rate_limit_buckets WHERE key = ${hashKey(rawKey)} AND reset_at > (now() AT TIME ZONE 'utc')`));
+    const res = await outsideTransaction(() => db.execute(sql`SELECT hits FROM rate_limit_buckets WHERE key = ${hashKey(canonicalRateKey(rawKey))} AND reset_at > (now() AT TIME ZONE 'utc')`));
     const row = res.rows[0] as { hits: number } | undefined;
     return !!row && Number(row.hits) > effectiveLimit(rawKey, rawLimit);
   } catch {

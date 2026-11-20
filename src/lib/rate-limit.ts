@@ -1,3 +1,6 @@
+import { canonicalRateKey } from "@/lib/ip-bucket";
+
+export { canonicalRateKey };
 /**
  * محدودکننده‌ی نرخ درون‌حافظه‌ای (پنجره‌ی ثابت) — «لایه‌ی سریع و هم‌زمان».
  *
@@ -28,7 +31,8 @@ export const UNKNOWN_IP_LIMIT_MULTIPLIER = 40;
 const UNKNOWN_KEY_RE = /(^|:)unknown(:|$)/;
 
 export function normalizeRateKey(rawKey: string): string {
-  return rawKey.length > MAX_KEY_LENGTH ? rawKey.slice(0, MAX_KEY_LENGTH) : rawKey;
+  const k = canonicalRateKey(rawKey);
+  return k.length > MAX_KEY_LENGTH ? k.slice(0, MAX_KEY_LENGTH) : k;
 }
 
 export const effectiveLimit = (rawKey: string, rawLimit: number): number => (UNKNOWN_KEY_RE.test(rawKey) ? rawLimit * UNKNOWN_IP_LIMIT_MULTIPLIER : rawLimit);

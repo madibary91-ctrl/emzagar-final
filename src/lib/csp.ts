@@ -17,6 +17,17 @@ export function frameModeFor(pathname: string): FrameMode {
   return "none";
 }
 
+/**
+ * S00-F01: آیا این درخواست «پیش‌خوان RSC» واقعیِ Next.js است؟ (برای صرفه‌جویی در ساخت nonce)
+ * فقط CSP از این میان‌بر استفاده می‌کند؛ «دروازه‌ی نصب» هرگز نباید به هدرهای کلاینت‌ساخت وابسته باشد.
+ * مرورگر برای prefetch همیشه هدر `RSC` را هم می‌فرستد؛ پس هدر تنهای `Purpose: prefetch` که مهاجم دستی اضافه کند،
+ * این میان‌بر را فعال نمی‌کند.
+ */
+export function isRscPrefetch(get: (name: string) => string | null | undefined): boolean {
+  const prefetch = !!get("next-router-prefetch") || String(get("purpose") ?? "").toLowerCase() === "prefetch";
+  return prefetch && !!get("rsc");
+}
+
 export function newNonce(): string {
   return Buffer.from(crypto.randomUUID()).toString("base64");
 }

@@ -15,8 +15,10 @@ const KEY_FILE = path.join(STORAGE_DIR, "install-key.txt");
 let memKey: string | null = null;
 let openWarned = false;
 export type InstallKeySource = "env" | "file" | "open";
+/** S00-F03: فاصله/خط‌جدیدِ اضافه (کپی از فایل یا .env) نباید کلید را غیرقابل‌تایپ کند */
+const envKey = (): string => (process.env.INSTALL_KEY ?? "").trim();
 export function installKeySource(): InstallKeySource {
-  if (process.env.INSTALL_KEY) return "env";
+  if (envKey()) return "env";
   if (process.env.INSTALL_OPEN === "1") return "open";
   return "file";
 }
@@ -32,7 +34,13 @@ function readKeyFile(): string | null {
 function announceKey(key: string, where: string) {
   console.warn(`\n[install] ⚠ کلید نصب (برای باز کردن /install لازم است): ${key}\n[install]   ${where}\n`);
 }
-/** کلید فایل را (اگر نبود) می‌سازد؛ هم‌زمانیِ چند درخواست با فلگ "wx" بی‌خطر است */
+/**
+ * کلید فایل را (اگر نبود) می‌سازد؛ هم‌زمانیِ چند درخواست با فلگ "wx" بی‌خطر است.
+ *
+ * S00-F02: اگر فایل «هست ولی بی‌مصرف» باشد (خالی/کوتاه‌تر از ۱۶ نویسه: قطع برق یا پر بودن دیسک حین نوشتن، یا ویرایش دستی)،
+ * پیش‌تر `wx` با EEXIST شکست می‌خورد و کدِ قدیمی یک کلید تصادفیِ «ذخیره‌نشده و اعلام‌نشده» برمی‌گرداند؛ یعنی کلیدِ درست هیچ‌کس
+ * نمی‌دانست و نصب‌کننده تا حذف دستی فایل برای همیشه قفل می‌ماند. اکنون فایل بی‌مصرف اتمی (tmp + rename) جایگزین و کلید اعلام می‌شود.
+ */
 function ensureFileKey(): string {
   const existing = readKeyFile();
   if (existing) return existing;
@@ -40,11 +48,19 @@ function ensureFileKey(): string {
   const key = crypto.randomBytes(18).toString("base64url");
   try {
     fs.mkdirSync(STORAGE_DIR, { recursive: true });
-    fs.writeFileSync(KEY_FILE, `${key}\n`, { mode: 0o600, flag: "wx" });
+    try {
+      fs.writeFileSync(KEY_FILE, `${key}\n`, { mode: 0o600, flag: "wx" });
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code !== "EEXIST") throw e;
+      const raced = readKeyFile(); // پردازه‌ی دیگری همین حالا کلید معتبر نوشته است
+      if (raced) return raced;
+      const tmp = `${KEY_FILE}.${process.pid}.tmp`;
+      fs.writeFileSync(tmp, `${key}\n`, { mode: 0o600 });
+      fs.renameSync(tmp, KEY_FILE);
+    }
     announceKey(key, `ذخیره‌شده در ${KEY_FILE}`);
     return key;
-  } catch (e) {
-    if ((e as NodeJS.ErrnoException).code === "EEXIST") return readKeyFile() ?? key;
+  } catch {
     memKey = key; // storage قابل‌نوشتن نیست؛ کلید فقط در حافظه‌ی همین پردازه و لاگ می‌ماند (باز هم بسته است)
     announceKey(key, "فقط در حافظه‌ی سرور (پوشه‌ی storage قابل نوشتن نیست)");
     return key;
@@ -52,7 +68,7 @@ function ensureFileKey(): string {
 }
 function requiredKey(): string | null {
   const src = installKeySource();
-  if (src === "env") return process.env.INSTALL_KEY!;
+  if (src === "env") return envKey();
   if (src === "open") {
     if (!openWarned) {
       openWarned = true;
@@ -92,7 +108,7 @@ export function __resetKeyFailures(): void {
 export function keyMatches(given: string | undefined): boolean {
   const required = requiredKey();
   if (required === null) return true;
-  const a = crypto.createHash("sha256").update(String(given ?? "")).digest();
+  const a = crypto.createHash("sha256").update(typeof given === "string" ? given.trim() : "").digest();
   const b = crypto.createHash("sha256").update(required).digest();
   return crypto.timingSafeEqual(a, b);
 }

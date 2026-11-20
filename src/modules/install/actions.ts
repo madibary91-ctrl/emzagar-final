@@ -91,13 +91,21 @@ export async function installAccountAction(input: AccountInput, installKey?: str
   if (blocked) return { ok: false, error: blocked };
   const problem = validateAccount(input);
   if (problem) return { ok: false, error: problem };
+  let created: Awaited<ReturnType<typeof createFirstAdmin>>;
   try {
-    const created = await createFirstAdmin(input);
-    if (!created) return { ok: false, error: "سامانه قبلاً نصب شده است." };
-    await createSession(created.userId, created.passwordHash);
-    await setActiveWorkspaceCookie(created.workspaceId);
+    created = await createFirstAdmin(input);
   } catch (e) {
     return { ok: false, error: `ساخت حساب مدیر ناموفق بود (${describeDbError(e)})` };
+  }
+  if (!created) return { ok: false, error: "سامانه قبلاً نصب شده است." };
+  // S00-F05: از این لحظه مدیر «ماندگار» است (commit شده) و سامانه نصب‌شده حساب می‌شود. اگر ساخت نشست/کوکی شکست بخورد،
+  // پیش‌تر خطای «ساخت حساب ناموفق بود» برمی‌گشت؛ مرحله‌ی «پایان» اجرا نمی‌شد و تلاش دوباره هم «قبلاً نصب شده» می‌داد
+  // (کاربر با پیام دروغ گیج می‌شد). اکنون موفقیت گزارش می‌شود و کاربر به‌جای ورود خودکار، با همان رمز وارد می‌شود.
+  try {
+    await createSession(created.userId, created.passwordHash);
+    await setActiveWorkspaceCookie(created.workspaceId);
+  } catch {
+    return { ok: true, note: "حساب مدیر ساخته شد ولی ورود خودکار ممکن نشد؛ از صفحه‌ی ورود با همان ایمیل و رمز وارد شوید." };
   }
   return { ok: true };
 }

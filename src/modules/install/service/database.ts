@@ -6,23 +6,67 @@ import { getConfig, writeConfig } from "@/lib/config";
 export type DbInput =
   | { mode: "simple"; host: string; port: string; name: string; user: string; password: string; ssl: boolean }
   | { mode: "url"; url: string };
+const HOST_RE = /^(?:[A-Za-z0-9._-]+|\[[0-9A-Fa-f:.]+\])$/;
+/** آدرس لینک‌محلی (۱۶۹٫۲۵۴٫x.x: سرویس فراداده‌ی ابر مثل AWS/GCP/Azure) هرگز دیتابیس نیست؛ مقصد SSRF است */
+const isMetadataHost = (host: string) => /^169\.254\./.test(host) || /^\[?fe80:/i.test(host) || /^\[?fd00:ec2:/i.test(host) || host === "metadata.google.internal";
+/**
+ * S00-F04: پارامترهای مجاز رشته‌ی اتصال. هر پارامتر دیگر (host، hostaddr، options، sslcert/sslkey/sslrootcert که فایل محلی سرور
+ * را می‌خوانند، service، passfile، …) می‌تواند مقصد یا رفتار اتصال را پس از اعتبارسنجی عوض کند ← رد می‌شود (تزریق پارامتر).
+ */
+const ALLOWED_QUERY: Record<string, RegExp> = {
+  sslmode: /^(disable|allow|prefer|require|verify-ca|verify-full|no-verify)$/,
+  ssl: /^(true|false|1|0)$/,
+  connect_timeout: /^\d{1,3}$/,
+  application_name: /^[A-Za-z0-9._ -]{1,64}$/,
+  channel_binding: /^(disable|prefer|require)$/,
+  pgbouncer: /^(true|false)$/,
+};
+const str = (v: unknown): v is string => typeof v === "string";
 /** ساخت آدرس اتصال از فیلدهای ساده‌ی فرم (کاراکترهای خاص رمز به‌درستی کدگذاری می‌شوند) */
 export function buildDatabaseUrl(input: DbInput): { url?: string; error?: string } {
-  if (input.mode === "url") {
-    const url = input.url.trim();
-    if (!/^postgres(ql)?:\/\/[^\s]+$/i.test(url)) return { error: "آدرس اتصال باید با postgresql:// شروع شود." };
+  // L8: ورودی Server Action از کلاینت می‌آید و ممکن است ساخته‌دست باشد (آرایه/عدد/null)؛ هرگز TypeError (۵۰۰) نده
+  const raw = input as unknown as Record<string, unknown> | null;
+  if (!raw || typeof raw !== "object") return { error: "اطلاعات دیتابیس نامعتبر است." };
+  if (raw.mode === "url") {
+    if (!str(raw.url)) return { error: "آدرس اتصال باید متن باشد." };
+    const url = raw.url.trim();
+    if (url.length > 2048 || !/^postgres(ql)?:\/\/[^\s]+$/i.test(url)) return { error: "آدرس اتصال باید با postgresql:// شروع شود." };
+    let u: URL;
+    try {
+      u = new URL(url);
+    } catch {
+      return { error: "آدرس اتصال معتبر نیست." };
+    }
+    if (!u.hostname || !HOST_RE.test(u.hostname)) return { error: "آدرس سرور (Host) در رشته‌ی اتصال نامعتبر است." };
+    if (isMetadataHost(u.hostname)) return { error: "این آدرس سرور مجاز نیست." };
+    let dbName = "";
+    try {
+      dbName = decodeURIComponent(u.pathname.replace(/^\//, ""));
+    } catch {
+      return { error: "نام دیتابیس در رشته‌ی اتصال نامعتبر است." };
+    }
+    if (!/^[^\s/\\\u0000-\u001f]{1,63}$/.test(dbName)) return { error: "نام دیتابیس در رشته‌ی اتصال نامعتبر یا خالی است." };
+    for (const [k, v] of u.searchParams) {
+      const rule = ALLOWED_QUERY[k];
+      if (!rule || !rule.test(v)) return { error: `پارامتر «${k.slice(0, 40)}» در رشته‌ی اتصال مجاز نیست. فقط ${Object.keys(ALLOWED_QUERY).join("، ")} پذیرفته می‌شود.` };
+    }
     return { url };
   }
-  const host = input.host.trim() || "localhost";
-  const port = Number(input.port || "5432");
-  const name = input.name.trim();
-  const user = input.user.trim();
+  if (raw.mode !== "simple") return { error: "روش اتصال نامعتبر است." };
+  if (![raw.host, raw.port, raw.name, raw.user, raw.password].every((v) => v === undefined || str(v))) return { error: "اطلاعات دیتابیس باید متن باشد." };
+  const host = (str(raw.host) ? raw.host : "").trim() || "localhost";
+  const port = Number((str(raw.port) ? raw.port : "").trim() || "5432");
+  const name = (str(raw.name) ? raw.name : "").trim();
+  const user = (str(raw.user) ? raw.user : "").trim();
+  const password = str(raw.password) ? raw.password : "";
   if (!/^[A-Za-z0-9.\-_]+$/.test(host)) return { error: "آدرس سرور (Host) نامعتبر است." };
+  if (isMetadataHost(host)) return { error: "این آدرس سرور مجاز نیست." };
   if (!Number.isInteger(port) || port < 1 || port > 65535) return { error: "پورت باید عددی بین ۱ تا ۶۵۵۳۵ باشد." };
   if (!/^[A-Za-z0-9_\-]{1,63}$/.test(name)) return { error: "نام دیتابیس فقط می‌تواند شامل حروف انگلیسی، عدد، خط تیره و زیرخط باشد." };
   if (!user) return { error: "نام کاربری دیتابیس را وارد کنید." };
-  const auth = `${encodeURIComponent(user)}:${encodeURIComponent(input.password)}`;
-  return { url: `postgresql://${auth}@${host}:${port}/${name}${input.ssl ? "?sslmode=no-verify" : ""}` };
+  if (user.length > 100 || password.length > 512) return { error: "نام کاربری یا رمز دیتابیس بیش از حد بلند است." };
+  const auth = `${encodeURIComponent(user)}:${encodeURIComponent(password)}`;
+  return { url: `postgresql://${auth}@${host}:${port}/${name}${raw.ssl === true ? "?sslmode=no-verify" : ""}` };
 }
 /** ترجمه‌ی خطاهای فنی PostgreSQL به راهنمای قابل‌فهم برای کاربر مبتدی */
 export function describeDbError(e: unknown): string {

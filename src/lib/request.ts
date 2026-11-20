@@ -1,6 +1,7 @@
 import net from "node:net";
 import { headers } from "next/headers";
 import { bootstrapOriginFromHeaders, resolveTrustedOrigin } from "@/lib/origin";
+import { noteClientIp } from "@/lib/ip-bucket";
 import { PEER_IP_HEADER } from "@/lib/peer-ip";
 import { isPrivateIp } from "@/lib/ssrf";
 
@@ -48,6 +49,10 @@ export function peerIpFrom(get: (name: string) => string | null): string {
  * فقط وقتی هیچ منبع قابل اعتمادی نباشد "unknown" برمی‌گردد (و rateLimit برای آن سقف جهانی جداگانه دارد).
  */
 export function clientIpFrom(get: (name: string) => string | null): string {
+  return noteClientIp(resolveClientIp(get)); // S00-F06: IPv6 برای شمارنده‌ی نرخ به /64 فشرده می‌شود (lib/ip-bucket.ts)
+}
+
+function resolveClientIp(get: (name: string) => string | null): string {
   const peer = peerIpFrom(get);
   const hops = trustedProxyHops();
   if (hops === 0) return peer || "unknown";
